@@ -5,7 +5,12 @@ import os
 /// Consumes an audio buffer stream, detects speech via Silero VAD,
 /// and transcribes completed speech segments via Parakeet-TDT.
 final class StreamingTranscriber: @unchecked Sendable {
-    private let asrManager: AsrManager
+    private enum Backend: @unchecked Sendable {
+        case parakeet(AsrManager)
+        case qwen3(Qwen3AsrManager, Qwen3AsrConfig.Language?)
+    }
+
+    private let backend: Backend
     private let vadManager: VadManager
     private let speaker: Speaker
     private let onPartial: @Sendable (String) -> Void
@@ -28,7 +33,22 @@ final class StreamingTranscriber: @unchecked Sendable {
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void
     ) {
-        self.asrManager = asrManager
+        self.backend = .parakeet(asrManager)
+        self.vadManager = vadManager
+        self.speaker = speaker
+        self.onPartial = onPartial
+        self.onFinal = onFinal
+    }
+
+    init(
+        qwen3Manager: Qwen3AsrManager,
+        qwenLanguage: Qwen3AsrConfig.Language?,
+        vadManager: VadManager,
+        speaker: Speaker,
+        onPartial: @escaping @Sendable (String) -> Void,
+        onFinal: @escaping @Sendable (String) -> Void
+    ) {
+        self.backend = .qwen3(qwen3Manager, qwenLanguage)
         self.vadManager = vadManager
         self.speaker = speaker
         self.onPartial = onPartial
@@ -141,8 +161,18 @@ final class StreamingTranscriber: @unchecked Sendable {
 
     private func transcribeSegment(_ samples: [Float]) async {
         do {
-            let result = try await asrManager.transcribe(samples)
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text: String
+            switch backend {
+            case .parakeet(let asrManager):
+                let result = try await asrManager.transcribe(samples)
+                text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .qwen3(let qwen3Manager, let qwenLanguage):
+                text = try await qwen3Manager.transcribe(
+                    audioSamples: samples,
+                    language: qwenLanguage,
+                    maxNewTokens: 512
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             guard !text.isEmpty else { return }
             log.info("[\(self.speaker.rawValue)] transcribed: \(text.prefix(80))")
             onFinal(text)
