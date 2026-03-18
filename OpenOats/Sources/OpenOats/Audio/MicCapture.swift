@@ -276,28 +276,29 @@ final class MicCapture: @unchecked Sendable {
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain
             )
-            var name: CFString = "" as CFString
-            var nameSize = UInt32(MemoryLayout<CFString>.size)
+            var name: Unmanaged<CFString>?
+            var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
             status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &name)
-            guard status == noErr else { continue }
+            guard status == noErr, let name else { continue }
 
-            result.append((id: deviceID, name: name as String))
+            result.append((id: deviceID, name: name.takeRetainedValue() as String))
         }
 
         return result
     }
 
-    /// Convert a CoreAudio AudioDeviceID to the UID string used by ScreenCaptureKit.
+    /// Convert a CoreAudio AudioDeviceID to its stable UID string.
     static func deviceUID(for deviceID: AudioDeviceID) -> String? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceUID,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var uid: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uid)
-        return status == noErr ? uid as String : nil
+        guard status == noErr, let uid else { return nil }
+        return uid.takeRetainedValue() as String
     }
 
     static func defaultInputDeviceID() -> AudioDeviceID? {

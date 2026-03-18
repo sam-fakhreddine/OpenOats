@@ -58,7 +58,7 @@ Or build from source:
 ## Quick start
 
 1. Open the DMG and drag OpenOats to Applications
-2. Launch the app and grant microphone + screen capture permissions
+2. Launch the app and grant microphone + system audio recording permissions
 3. Open Settings (`Cmd+,`) and pick your providers:
    - **Cloud**: add your OpenRouter and Voyage AI API keys
    - **Local**: select Ollama as your LLM and embedding provider (make sure Ollama is running)

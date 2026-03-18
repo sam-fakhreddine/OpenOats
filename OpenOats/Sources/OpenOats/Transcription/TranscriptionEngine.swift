@@ -43,7 +43,10 @@ final class TranscriptionEngine {
     private var micKeepAliveTask: Task<Void, Never>?
 
     /// Shared FluidAudio instances
-    private var asrManager: AsrManager?
+    // Parakeet keeps mutable decoder state per manager, so mic and system audio
+    // need separate instances even when they share the same loaded model files.
+    private var micAsrManager: AsrManager?
+    private var systemAsrManager: AsrManager?
     private var qwen3Manager: Qwen3AsrManager?
     private var vadManager: VadManager?
     private var currentTranscriptionModel: TranscriptionModel?
@@ -107,16 +110,22 @@ final class TranscriptionEngine {
             case .parakeetV2:
                 let models = try await AsrModels.downloadAndLoad(version: .v2)
                 assetStatus = "Initializing \(transcriptionModel.displayName)..."
-                let asr = AsrManager(config: .default)
-                try await asr.initialize(models: models)
-                self.asrManager = asr
+                let micAsr = AsrManager(config: .default)
+                try await micAsr.initialize(models: models)
+                let systemAsr = AsrManager(config: .default)
+                try await systemAsr.initialize(models: models)
+                self.micAsrManager = micAsr
+                self.systemAsrManager = systemAsr
                 self.qwen3Manager = nil
             case .parakeetV3:
                 let models = try await AsrModels.downloadAndLoad(version: .v3)
                 assetStatus = "Initializing \(transcriptionModel.displayName)..."
-                let asr = AsrManager(config: .default)
-                try await asr.initialize(models: models)
-                self.asrManager = asr
+                let micAsr = AsrManager(config: .default)
+                try await micAsr.initialize(models: models)
+                let systemAsr = AsrManager(config: .default)
+                try await systemAsr.initialize(models: models)
+                self.micAsrManager = micAsr
+                self.systemAsrManager = systemAsr
                 self.qwen3Manager = nil
             case .qwen3ASR06B:
                 assetStatus = "Initializing \(transcriptionModel.displayName)..."
@@ -124,7 +133,8 @@ final class TranscriptionEngine {
                 let qwen3 = Qwen3AsrManager()
                 try await qwen3.loadModels(from: modelsDirectory)
                 self.qwen3Manager = qwen3
-                self.asrManager = nil
+                self.micAsrManager = nil
+                self.systemAsrManager = nil
             }
 
             assetStatus = "Loading VAD model..."
@@ -427,6 +437,7 @@ final class TranscriptionEngine {
     ) -> StreamingTranscriber {
         switch currentTranscriptionModel ?? settings.transcriptionModel {
         case .parakeetV2, .parakeetV3:
+            let asrManager = speaker == .you ? micAsrManager : systemAsrManager
             guard let asrManager else {
                 fatalError("Parakeet transcription requested without an initialized AsrManager")
             }

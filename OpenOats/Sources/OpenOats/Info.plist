@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.opengranola.app</string>
     <key>CFBundleVersion</key>
-    <string>1.10.0</string>
+    <string>1.10.1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.10.0</string>
+    <string>1.10.1</string>
     <key>CFBundleExecutable</key>
     <string>OpenOats</string>
     <key>CFBundleIconFile</key>
@@ -22,8 +22,8 @@
     <string>15.0</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>OpenOats needs microphone access to transcribe your voice in real-time during conversations.</string>
-    <key>NSScreenCaptureUsageDescription</key>
-    <string>OpenOats needs screen capture permission to capture system audio from other participants.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>OpenOats needs system audio recording access to transcribe other participants in real time.</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>SUFeedURL</key>

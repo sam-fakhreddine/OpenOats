@@ -187,7 +187,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         let frameLength = Int(buffer.frameLength)
         guard frameLength > 0 else { return nil }
 
-        // Fast path: already Float32 at 16kHz (common for system audio from ScreenCaptureKit)
+        // Fast path: already Float32 at 16kHz (common for system audio capture)
         if sourceFormat.commonFormat == .pcmFormatFloat32 && sourceFormat.sampleRate == 16000 {
             guard let channelData = buffer.floatChannelData else { return nil }
             if sourceFormat.channelCount == 1 {
