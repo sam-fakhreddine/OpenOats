@@ -3,7 +3,7 @@
 A meeting note-taker that talks back.
 
 <p align="center">
-  <a href="https://github.com/yazinsai/OpenGranola/releases/latest">
+  <a href="https://github.com/yazinsai/OpenOats/releases/latest">
     <img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" />
   </a>
 </p>
@@ -47,7 +47,7 @@ The app will ask you to acknowledge these obligations before your first recordin
 
 ## Download
 
-Grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenGranola/releases/latest).
+Grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenOats/releases/latest).
 
 Or build from source:
 

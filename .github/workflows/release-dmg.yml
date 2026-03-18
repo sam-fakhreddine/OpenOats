@@ -135,11 +135,11 @@ jobs:
           echo "EdDSA signature: $ED_SIGNATURE"
           echo "DMG length: $DMG_LENGTH"
 
-          DMG_URL="https://github.com/yazinsai/OpenGranola/releases/download/${TAG}/OpenOats.dmg"
+          DMG_URL="https://github.com/yazinsai/OpenOats/releases/download/${TAG}/OpenOats.dmg"
           PUB_DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
 
           # Clone gh-pages branch
-          git clone --branch gh-pages --single-branch "https://x-access-token:${GH_TOKEN}@github.com/yazinsai/OpenGranola.git" /tmp/gh-pages
+          git clone --branch gh-pages --single-branch "https://x-access-token:${GH_TOKEN}@github.com/yazinsai/OpenOats.git" /tmp/gh-pages
 
           # Generate appcast.xml
           cat > /tmp/gh-pages/appcast.xml <<APPCAST_EOF
@@ -147,7 +147,7 @@ jobs:
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
             <channel>
               <title>OpenOats Updates</title>
-              <link>https://raw.githubusercontent.com/yazinsai/OpenGranola/gh-pages/appcast.xml</link>
+              <link>https://raw.githubusercontent.com/yazinsai/OpenOats/gh-pages/appcast.xml</link>
               <description>Most recent updates to OpenOats</description>
               <language>en</language>
               <item>
