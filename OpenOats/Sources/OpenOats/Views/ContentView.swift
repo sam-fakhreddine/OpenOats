@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import ScreenCaptureKit
 
 struct ContentView: View {
     @Bindable var settings: AppSettings
@@ -16,6 +17,8 @@ struct ContentView: View {
     @State private var showOnboarding = false
     @State private var showConsentSheet = false
     @State private var audioLevel: Float = 0
+    @State private var availableApps: [(bundleID: String, name: String)] = []
+    @State private var isRefreshingApps = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -150,6 +153,7 @@ struct ContentView: View {
                 )
             }
             indexKBIfNeeded()
+            await refreshAvailableApps()
         }
         .onChange(of: settings.kbFolderPath) {
             if settings.kbFolderPath.isEmpty {
@@ -180,16 +184,12 @@ struct ContentView: View {
             overlayManager.hide()
             return .handled
         }
-        .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
-            guard let engine = transcriptionEngine else {
-                if audioLevel != 0 { audioLevel = 0 }
-                return
+        .task(id: isRunning) {
+            guard isRunning, let engine = transcriptionEngine else { audioLevel = 0; return }
+            for await level in engine.audioLevelStream {
+                audioLevel = level
             }
-            if engine.isRunning {
-                audioLevel = engine.audioLevel
-            } else if audioLevel != 0 {
-                audioLevel = 0
-            }
+            audioLevel = 0
         }
     }
 
@@ -222,6 +222,16 @@ struct ContentView: View {
                     }
                 }
 
+                Button {
+                    openWindow(id: "history")
+                } label: {
+                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Browse past transcripts")
+
                 if settings.kbFolderPath.isEmpty {
                     Button("Set KB Folder...") {
                         chooseKBFolder()
@@ -251,7 +261,7 @@ struct ContentView: View {
                 }
             }
 
-            // Row 2: Template picker
+            // Row 2: Template picker + Audio source picker
             HStack {
                 @Bindable var coord = coordinator
                 Menu {
@@ -295,6 +305,52 @@ struct ContentView: View {
                 .fixedSize()
 
                 Spacer()
+
+                // Audio source picker
+                Menu {
+                    Button {
+                        settings.captureAppBundleID = ""
+                    } label: {
+                        HStack {
+                            Text("All apps")
+                            if settings.captureAppBundleID.isEmpty {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    if !availableApps.isEmpty {
+                        Divider()
+                        ForEach(availableApps, id: \.bundleID) { app in
+                            Button {
+                                settings.captureAppBundleID = app.bundleID
+                            } label: {
+                                HStack {
+                                    Text(app.name)
+                                    if settings.captureAppBundleID == app.bundleID {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "speaker.wave.2")
+                            .font(.system(size: 10))
+                        if settings.captureAppBundleID.isEmpty {
+                            Text("All apps")
+                                .font(.system(size: 11))
+                        } else {
+                            Text(availableApps.first(where: { $0.bundleID == settings.captureAppBundleID })?.name ?? "One app")
+                                .font(.system(size: 11))
+                        }
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
         }
         .padding(.horizontal, 16)
@@ -337,7 +393,10 @@ struct ContentView: View {
             await transcriptLogger?.startSession()
             await transcriptionEngine?.start(
                 locale: settings.locale,
-                inputDeviceID: settings.inputDeviceID
+                inputDeviceID: settings.inputDeviceID,
+                captureAppBundleID: settings.captureAppBundleID,
+                distinguishSpeakers: settings.distinguishSpeakers,
+                asrProviderKind: settings.asrProvider
             )
         }
     }
@@ -381,11 +440,23 @@ struct ContentView: View {
         }
     }
 
+    private func refreshAvailableApps() async {
+        guard !isRefreshingApps else { return }
+        isRefreshingApps = true
+        defer { isRefreshingApps = false }
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else { return }
+        let apps = content.applications
+            .filter { !$0.bundleIdentifier.isEmpty && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .map { (bundleID: $0.bundleIdentifier, name: $0.applicationName) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        availableApps = apps
+    }
+
     private func copyTranscript() {
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "HH:mm:ss"
         let lines = transcriptStore.utterances.map { u in
-            "[\(timeFmt.string(from: u.timestamp))] \(u.speaker == .you ? "You" : "Them"): \(u.text)"
+            "[\(timeFmt.string(from: u.timestamp))] \(u.speaker.displayLabel): \(u.text)"
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
@@ -398,14 +469,15 @@ struct ContentView: View {
         // Persist to transcript log
         Task {
             await transcriptLogger?.append(
-                speaker: last.speaker == .you ? "You" : "Them",
+                speaker: last.speaker.displayLabel,
                 text: last.text,
                 timestamp: last.timestamp
             )
         }
 
-        // Trigger suggestions on THEM utterance
-        if last.speaker == .them {
+        // Trigger suggestions on THEM or any named-speaker utterance
+        switch last.speaker {
+        case .them, .namedSpeaker:
             suggestionEngine?.onThemUtterance(last)
 
             // Delayed write owned by SessionStore (tracks pending writes for drain)
@@ -421,7 +493,7 @@ struct ContentView: View {
                     transcriptStore: transcriptStore
                 )
             }
-        } else {
+        default:
             // Log non-them utterances immediately
             Task {
                 await coordinator.sessionStore.appendRecord(SessionRecord(

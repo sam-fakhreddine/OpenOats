@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 import CryptoKit
 
@@ -183,16 +184,20 @@ final class KnowledgeBase {
             return []
         }
 
-        // Score fusion: for each chunk, take max cosine similarity across all queries
-        var bestScores: [Int: Float] = [:]
-        for queryEmb in queryEmbeddings {
-            for (i, chunk) in chunks.enumerated() {
-                let sim = cosineSimilarity(queryEmb, chunk.embedding)
-                if sim > 0.1 {
-                    bestScores[i] = max(bestScores[i] ?? 0, sim)
+        // Score fusion: run off @MainActor to avoid blocking the UI thread.
+        let localChunks = chunks
+        let bestScores: [Int: Float] = await Task.detached(priority: .userInitiated) { [self] in
+            var scores: [Int: Float] = [:]
+            for queryEmb in queryEmbeddings {
+                for (i, chunk) in localChunks.enumerated() {
+                    let sim = self.cosineSimilarity(queryEmb, chunk.embedding)
+                    if sim > 0.1 {
+                        scores[i] = max(scores[i] ?? 0, sim)
+                    }
                 }
             }
-        }
+            return scores
+        }.value
 
         var scored = bestScores.map { (index: $0.key, score: $0.value) }
         scored.sort { $0.score > $1.score }
@@ -471,17 +476,12 @@ final class KnowledgeBase {
 
     private nonisolated func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
-
-        var dot: Float = 0
+        let n = Int32(a.count)
+        let dot = cblas_sdot(n, a, 1, b, 1)
         var magA: Float = 0
+        vDSP_svesq(a, 1, &magA, vDSP_Length(a.count))
         var magB: Float = 0
-
-        for i in 0..<a.count {
-            dot += a[i] * b[i]
-            magA += a[i] * a[i]
-            magB += b[i] * b[i]
-        }
-
+        vDSP_svesq(b, 1, &magB, vDSP_Length(b.count))
         let denom = sqrt(magA) * sqrt(magB)
         guard denom > 0 else { return 0 }
         return dot / denom

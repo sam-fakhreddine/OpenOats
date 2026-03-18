@@ -4,17 +4,11 @@ import FluidAudio
 import Observation
 import os
 
-/// Simple file logger for diagnostics — writes to /tmp/openoats.log
+/// Diagnostic logger — output visible in Console.app (filter by subsystem "com.opengranola.app").
+private let _diagLogger = Logger(subsystem: "com.opengranola.app", category: "diagnostics")
+
 func diagLog(_ msg: String) {
-    let line = "\(Date()): \(msg)\n"
-    let path = "/tmp/openoats.log"
-    if let fh = FileHandle(forWritingAtPath: path) {
-        fh.seekToEndOfFile()
-        fh.write(line.data(using: .utf8)!)
-        fh.closeFile()
-    } else {
-        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
-    }
+    _diagLogger.debug("\(msg, privacy: .public)")
 }
 
 /// Orchestrates dual StreamingTranscriber instances for mic (you) and system audio (them).
@@ -36,14 +30,35 @@ final class TranscriptionEngine {
     /// Audio level from mic for the UI meter.
     var audioLevel: Float { micCapture.audioLevel }
 
+    /// Publishes audio level changes only when the delta exceeds 0.02, avoiding re-renders
+    /// for noise floor fluctuations. Polled at 50ms intervals on a utility task.
+    var audioLevelStream: AsyncStream<Float> {
+        AsyncStream { continuation in
+            Task.detached(priority: .utility) { [weak self] in
+                var lastLevel: Float = 0
+                while !Task.isCancelled {
+                    guard let self else { break }
+                    let current = await self.audioLevel
+                    if abs(current - lastLevel) > 0.02 {
+                        continuation.yield(current)
+                        lastLevel = current
+                    }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                continuation.finish()
+            }
+        }
+    }
+
     private var micTask: Task<Void, Never>?
     private var sysTask: Task<Void, Never>?
     /// Keeps the mic stream alive for the audio level meter when transcription isn't running.
     private var micKeepAliveTask: Task<Void, Never>?
 
     /// Shared FluidAudio instances
-    private var asrManager: AsrManager?
+    private var asrProvider: (any ASRProvider)?
     private var vadManager: VadManager?
+    private var diarizerManager: DiarizerManager?
 
     /// Tracks the resolved mic device ID currently in use.
     private var currentMicDeviceID: AudioDeviceID = 0
@@ -57,11 +72,11 @@ final class TranscriptionEngine {
     init(transcriptStore: TranscriptStore) {
         self.transcriptStore = transcriptStore
         self.needsModelDownload = !AsrModels.modelsExist(
-            at: AsrModels.defaultCacheDirectory(for: .v2), version: .v2
+            at: AsrModels.defaultCacheDirectory(for: .v3), version: .v3
         )
     }
 
-    func start(locale: Locale, inputDeviceID: AudioDeviceID = 0) async {
+    func start(locale: Locale, inputDeviceID: AudioDeviceID = 0, captureAppBundleID: String = "", distinguishSpeakers: Bool = false, asrProviderKind: ASRProviderKind = .parakeetV3) async {
         diagLog("[ENGINE-0] start() called, isRunning=\(isRunning)")
         guard !isRunning else { return }
         lastError = nil
@@ -75,25 +90,49 @@ final class TranscriptionEngine {
 
         isRunning = true
 
-        // 1. Load FluidAudio models
-        assetStatus = needsModelDownload ? "Downloading ASR model (~600MB)..." : "Loading ASR model..."
-        diagLog("[ENGINE-1] loading FluidAudio ASR models...")
+        // 1. Load ASR provider
+        diagLog("[ENGINE-1] loading ASR provider (\(String(describing: asrProviderKind)))...")
         do {
-            let models = try await AsrModels.downloadAndLoad(version: .v2)
-            assetStatus = "Initializing ASR..."
-            let asr = AsrManager(config: .default)
-            try await asr.initialize(models: models)
-            self.asrManager = asr
+            switch asrProviderKind {
+            case .parakeetV3:
+                assetStatus = needsModelDownload ? "Downloading ASR model (~600MB)..." : "Loading ASR model..."
+                let models = try await AsrModels.downloadAndLoad(version: .v3)
+                assetStatus = "Initializing ASR..."
+                let asr = AsrManager(config: .default)
+                try await asr.initialize(models: models)
+                self.asrProvider = ParakeetASRProvider(asrManager: asr)
+                needsModelDownload = false
+            case .whisperLargeV3Turbo:
+                assetStatus = "WhisperKit will download on first use (~600MB)"
+                self.asrProvider = WhisperKitASRProvider()
+                needsModelDownload = false
+            }
 
             assetStatus = "Loading VAD model..."
             diagLog("[ENGINE-1b] loading VAD model...")
             let vad = try await VadManager()
             self.vadManager = vad
 
-            needsModelDownload = false
+            if distinguishSpeakers {
+                assetStatus = "Loading diarization model (~32MB)..."
+                diagLog("[ENGINE-1c] loading DiarizerModels...")
+                do {
+                    let diarizerModels = try await DiarizerModels.download()
+                    let dm = DiarizerManager()
+                    dm.initialize(models: diarizerModels)
+                    self.diarizerManager = dm
+                    diagLog("[ENGINE-1c] DiarizerModels loaded OK")
+                } catch {
+                    diagLog("[ENGINE-1c-WARN] DiarizerModels load failed: \(error.localizedDescription) — continuing without diarization")
+                    self.diarizerManager = nil
+                }
+            } else {
+                self.diarizerManager = nil
+            }
+
             downloadConfirmed = false
             assetStatus = "Models ready"
-            diagLog("[ENGINE-2] FluidAudio models loaded")
+            diagLog("[ENGINE-2] models loaded")
         } catch {
             let msg = "Failed to load models: \(error.localizedDescription)"
             diagLog("[ENGINE-2-FAIL] \(msg)")
@@ -103,7 +142,7 @@ final class TranscriptionEngine {
             return
         }
 
-        guard let asrManager, let vadManager else { return }
+        guard let asrProvider, let vadManager else { return }
 
         // 2. Start mic capture
         userSelectedDeviceID = inputDeviceID
@@ -116,8 +155,13 @@ final class TranscriptionEngine {
         diagLog("[ENGINE-4] starting system audio capture...")
         let sysStreams: SystemAudioCapture.CaptureStreams?
         do {
-            sysStreams = try await systemCapture.bufferStream()
+            sysStreams = try await systemCapture.bufferStream(appBundleID: captureAppBundleID.isEmpty ? nil : captureAppBundleID)
             diagLog("[ENGINE-5] system audio capture started OK")
+        } catch SystemAudioCapture.CaptureError.appNotFound(let id) {
+            let msg = "App '\(id)' not running — capturing all system audio instead."
+            diagLog("[ENGINE-5-WARN] \(msg)")
+            lastError = msg
+            sysStreams = try? await systemCapture.bufferStream(appBundleID: nil)
         } catch {
             let msg = "Failed to start system audio: \(error.localizedDescription)"
             diagLog("[ENGINE-5-FAIL] \(msg)")
@@ -128,16 +172,16 @@ final class TranscriptionEngine {
         // 4. Start mic transcription
         let store = transcriptStore
         let micTranscriber = StreamingTranscriber(
-            asrManager: asrManager,
+            asrProvider: asrProvider,
             vadManager: vadManager,
             speaker: .you,
             onPartial: { text in
                 Task { @MainActor in store.volatileYouText = text }
             },
-            onFinal: { text in
+            onFinal: { text, id in
                 Task { @MainActor in
                     store.volatileYouText = ""
-                    store.append(Utterance(text: text, speaker: .you))
+                    store.append(Utterance(id: id, text: text, speaker: .you, timestamp: .now))
                 }
             }
         )
@@ -148,25 +192,29 @@ final class TranscriptionEngine {
         // 5. Start system audio transcription
         if let sysStream = sysStreams?.systemAudio {
             let sysTranscriber = StreamingTranscriber(
-                asrManager: asrManager,
+                asrProvider: asrProvider,
                 vadManager: vadManager,
                 speaker: .them,
+                diarizerManager: self.diarizerManager,
                 onPartial: { text in
                     Task { @MainActor in store.volatileThemText = text }
                 },
-                onFinal: { text in
+                onFinal: { text, id in
                     Task { @MainActor in
                         store.volatileThemText = ""
-                        store.append(Utterance(text: text, speaker: .them))
+                        store.append(Utterance(id: id, text: text, speaker: .them, timestamp: .now))
                     }
                 }
             )
+            sysTranscriber.onSpeakerIdentified = { id, speaker in
+                Task { @MainActor in store.relabelUtterance(id: id, speaker: speaker) }
+            }
             sysTask = Task.detached {
                 await sysTranscriber.run(stream: sysStream)
             }
         }
 
-        assetStatus = "Transcribing (Parakeet-TDT v2)"
+        assetStatus = "Transcribing (\(asrProvider.modelDisplayName))"
         diagLog("[ENGINE-6] all transcription tasks started")
 
         // Install CoreAudio listener for default input device changes
@@ -176,7 +224,7 @@ final class TranscriptionEngine {
     /// Restart only the mic capture with a new device, keeping system audio and models intact.
     /// Pass the raw setting value (0 = system default, or a specific AudioDeviceID).
     func restartMic(inputDeviceID: AudioDeviceID) {
-        guard isRunning, let asrManager, let vadManager else { return }
+        guard isRunning, let asrProvider, let vadManager else { return }
 
         // Only update user selection when explicitly changed (not from OS listener)
         if inputDeviceID != 0 || userSelectedDeviceID != 0 {
@@ -201,16 +249,16 @@ final class TranscriptionEngine {
         let micStream = micCapture.bufferStream(deviceID: targetMicID)
         let store = transcriptStore
         let micTranscriber = StreamingTranscriber(
-            asrManager: asrManager,
+            asrProvider: asrProvider,
             vadManager: vadManager,
             speaker: .you,
             onPartial: { text in
                 Task { @MainActor in store.volatileYouText = text }
             },
-            onFinal: { text in
+            onFinal: { text, id in
                 Task { @MainActor in
                     store.volatileYouText = ""
-                    store.append(Utterance(text: text, speaker: .you))
+                    store.append(Utterance(id: id, text: text, speaker: .you, timestamp: .now))
                 }
             }
         )
@@ -316,7 +364,7 @@ final class TranscriptionEngine {
         assetStatus = "Ready"
     }
 
-    func stop() {
+    func stop() async {
         removeDefaultDeviceListener()
         micTask?.cancel()
         sysTask?.cancel()
@@ -324,7 +372,7 @@ final class TranscriptionEngine {
         micTask = nil
         sysTask = nil
         micKeepAliveTask = nil
-        Task { await systemCapture.stop() }
+        await systemCapture.stop()
         micCapture.stop()
         currentMicDeviceID = 0
         isRunning = false

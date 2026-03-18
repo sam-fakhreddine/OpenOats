@@ -3,6 +3,8 @@ import Foundation
 /// REST client for Voyage AI embeddings and reranking APIs.
 actor VoyageClient {
     private let baseURL = "https://api.voyageai.com/v1"
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
 
     enum VoyageError: Error, LocalizedError {
         case httpError(Int, String)
@@ -40,7 +42,7 @@ actor VoyageClient {
             body: body
         )
 
-        let response = try JSONDecoder().decode(EmbedResponse.self, from: data)
+        let response = try decoder.decode(EmbedResponse.self, from: data)
         guard !response.data.isEmpty else { throw VoyageError.emptyResponse }
 
         // Sort by index to maintain order
@@ -71,7 +73,7 @@ actor VoyageClient {
             body: body
         )
 
-        let response = try JSONDecoder().decode(RerankResponse.self, from: data)
+        let response = try decoder.decode(RerankResponse.self, from: data)
         return response.data.map { (index: $0.index, score: $0.relevance_score) }
     }
 
@@ -88,7 +90,7 @@ actor VoyageClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try encoder.encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
 

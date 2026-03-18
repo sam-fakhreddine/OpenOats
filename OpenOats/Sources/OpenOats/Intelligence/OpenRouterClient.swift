@@ -3,6 +3,8 @@ import Foundation
 /// Streaming OpenAI-compatible client for OpenRouter API (and Ollama via OpenAI-compatible endpoint).
 actor OpenRouterClient {
     private static let defaultBaseURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
 
     struct Message: Codable, Sendable {
         let role: String
@@ -44,7 +46,7 @@ actor OpenRouterClient {
                     if targetURL.host?.contains("openrouter.ai") == true {
                         urlRequest.setValue("OpenOats/2.0", forHTTPHeaderField: "HTTP-Referer")
                     }
-                    urlRequest.httpBody = try JSONEncoder().encode(request)
+                    urlRequest.httpBody = try encoder.encode(request)
 
                     let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
 
@@ -61,7 +63,7 @@ actor OpenRouterClient {
                         if payload == "[DONE]" { break }
 
                         guard let data = payload.data(using: .utf8) else { continue }
-                        if let chunk = try? JSONDecoder().decode(SSEChunk.self, from: data),
+                        if let chunk = try? decoder.decode(SSEChunk.self, from: data),
                            let content = chunk.choices.first?.delta.content {
                             continuation.yield(content)
                         }
@@ -104,7 +106,7 @@ actor OpenRouterClient {
         if targetURL.host?.contains("openrouter.ai") == true {
             urlRequest.setValue("OpenOats/2.0", forHTTPHeaderField: "HTTP-Referer")
         }
-        urlRequest.httpBody = try JSONEncoder().encode(request)
+        urlRequest.httpBody = try encoder.encode(request)
 
         let (data, response) = try await URLSession.shared.data(for: urlRequest)
 
@@ -114,7 +116,7 @@ actor OpenRouterClient {
             throw OpenRouterError.httpError(statusCode)
         }
 
-        let completionResponse = try JSONDecoder().decode(CompletionResponse.self, from: data)
+        let completionResponse = try decoder.decode(CompletionResponse.self, from: data)
         return completionResponse.choices.first?.message.content ?? ""
     }
 

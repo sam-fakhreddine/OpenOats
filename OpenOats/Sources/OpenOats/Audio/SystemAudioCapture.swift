@@ -1,3 +1,4 @@
+import Accelerate
 @preconcurrency import ScreenCaptureKit
 @preconcurrency import AVFoundation
 import CoreMedia
@@ -16,14 +17,25 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable, SCStreamDelegate,
         let systemAudio: AsyncStream<AVAudioPCMBuffer>
     }
 
-    func bufferStream() async throws -> CaptureStreams {
+    func bufferStream(appBundleID: String? = nil) async throws -> CaptureStreams {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
 
         guard let display = content.displays.first else {
             throw CaptureError.noDisplay
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let filter: SCContentFilter
+        if let bundleID = appBundleID, !bundleID.isEmpty {
+            if let targetApp = content.applications.first(where: { $0.bundleIdentifier == bundleID }) {
+                // Capture audio only from the selected app
+                filter = SCContentFilter(display: display, including: [targetApp], exceptingWindows: [])
+            } else {
+                throw CaptureError.appNotFound(bundleID)
+            }
+        } else {
+            // Capture all system audio (default)
+            filter = SCContentFilter(display: display, excludingWindows: [])
+        }
 
         let config = SCStreamConfiguration()
         config.capturesAudio = true
@@ -67,14 +79,22 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable, SCStreamDelegate,
 
     // MARK: - SCStreamOutput
 
+    /// Cached AVAudioFormat for the SCStream output (set on first sample, immutable thereafter).
+    private let _cachedFormat = OSAllocatedUnfairLock<AVAudioFormat?>(uncheckedState: nil)
     private let _sampleCount = OSAllocatedUnfairLock<Int>(uncheckedState: 0)
 
     nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio else { return }
-        guard let formatDesc = sampleBuffer.formatDescription,
-              var asbd = formatDesc.audioStreamBasicDescription else { return }
-
-        guard let format = AVAudioFormat(streamDescription: &asbd) else { return }
+        let format: AVAudioFormat
+        if let cached = _cachedFormat.withLockUnchecked({ $0 }) {
+            format = cached
+        } else {
+            guard let formatDesc = sampleBuffer.formatDescription,
+                  var asbd = formatDesc.audioStreamBasicDescription,
+                  let newFormat = AVAudioFormat(streamDescription: &asbd) else { return }
+            _cachedFormat.withLockUnchecked { $0 = newFormat }
+            format = newFormat
+        }
 
         let frameCount = AVAudioFrameCount(sampleBuffer.numSamples)
         guard frameCount > 0 else { return }
@@ -94,7 +114,7 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable, SCStreamDelegate,
         let count = _sampleCount.withLock { val -> Int in val += 1; return val }
         if count <= 5 || count % 200 == 0 {
             let rms = Self.normalizedRMS(from: pcmBuffer)
-            diagLog("[SYS-RAW] #\(count) frames=\(frameCount) sr=\(asbd.mSampleRate) ch=\(asbd.mChannelsPerFrame) rms=\(rms)")
+            diagLog("[SYS-RAW] #\(count) frames=\(frameCount) sr=\(format.sampleRate) ch=\(format.channelCount) rms=\(rms)")
         }
 
         _ = _sysContinuation.withLock { $0?.yield(pcmBuffer) }
@@ -109,17 +129,15 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable, SCStreamDelegate,
 
     private static func normalizedRMS(from buffer: AVAudioPCMBuffer) -> Float {
         guard let channelData = buffer.floatChannelData else { return 0 }
-        let frameLength = Int(buffer.frameLength)
+        let frameLength = vDSP_Length(buffer.frameLength)
         guard frameLength > 0 else { return 0 }
-        var sum: Float = 0
-        for i in 0..<frameLength {
-            let s = channelData[0][i]
-            sum += s * s
-        }
-        return sqrt(sum / Float(frameLength))
+        var rms: Float = 0
+        vDSP_rmsqv(channelData[0], 1, &rms, frameLength)
+        return rms
     }
 
     enum CaptureError: Error {
         case noDisplay
+        case appNotFound(String)
     }
 }

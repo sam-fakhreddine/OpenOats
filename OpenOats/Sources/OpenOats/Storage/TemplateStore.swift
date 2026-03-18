@@ -13,7 +13,12 @@ final class TemplateStore {
         let dir = appSupport.appendingPathComponent("OpenOats", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         storageURL = dir.appendingPathComponent("templates.json")
-        load()
+        // Provide built-ins immediately so the UI is never empty while disk I/O loads.
+        templates = Self.builtInTemplates
+        // Load persisted templates off the main thread; merge result when complete.
+        Task { [weak self] in
+            await self?.loadAsync()
+        }
     }
 
     // MARK: - Deterministic Built-in IDs
@@ -208,15 +213,26 @@ final class TemplateStore {
         var templates: [MeetingTemplate]
     }
 
-    private func load() {
-        guard FileManager.default.fileExists(atPath: storageURL.path) else {
-            templates = Self.builtInTemplates
+    private func loadAsync() async {
+        let url = storageURL
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            // No persisted file yet — built-ins already set in init; persist them.
+            save()
+            return
+        }
+
+        // Perform disk read off MainActor.
+        let readResult = await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url)
+        }.value
+
+        guard let data = readResult else {
+            // File unreadable — keep built-ins already in place.
             save()
             return
         }
 
         do {
-            let data = try Data(contentsOf: storageURL)
             let stored = try JSONDecoder().decode(StorageFormat.self, from: data)
             templateVersion = stored.version
             templates = stored.templates
@@ -228,8 +244,8 @@ final class TemplateStore {
                 }
             }
         } catch {
-            print("TemplateStore: failed to load, using defaults: \(error)")
-            templates = Self.builtInTemplates
+            print("TemplateStore: failed to decode, using defaults: \(error)")
+            // templates already contains built-ins from init — no reassignment needed.
         }
         save()
     }

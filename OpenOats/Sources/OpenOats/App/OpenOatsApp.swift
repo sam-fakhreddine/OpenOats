@@ -32,6 +32,11 @@ struct OpenOatsApp: App {
         }
         .defaultSize(width: 700, height: 550)
 
+        Window("History", id: "history") {
+            TranscriptHistoryView(settings: settings)
+        }
+        .defaultSize(width: 860, height: 540)
+
         Settings {
             SettingsView(settings: settings, updater: updaterController.updater)
                 .environment(coordinator)

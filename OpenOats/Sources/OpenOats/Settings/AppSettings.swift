@@ -34,6 +34,22 @@ enum EmbeddingProvider: String, CaseIterable, Identifiable {
     }
 }
 
+enum ASRProviderKind: String, CaseIterable, Identifiable {
+    case parakeetV3 = "parakeetV3"
+    case whisperLargeV3Turbo = "whisperLargeV3Turbo"
+
+    var id: String { rawValue }
+
+    var isExperimental: Bool { self != .parakeetV3 }
+
+    var displayName: String {
+        switch self {
+        case .parakeetV3: return "Parakeet TDT v3 (default)"
+        case .whisperLargeV3Turbo: return "Whisper large-v3-turbo"
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class AppSettings {
@@ -58,12 +74,24 @@ final class AppSettings {
         didSet { UserDefaults.standard.set(Int(inputDeviceID), forKey: "inputDeviceID") }
     }
 
+    // Debounce Tasks keyed by Keychain key name. Cancelled and rescheduled on each keystroke.
+    private var keychainDebounceTimers: [String: Task<Void, Never>] = [:]
+
+    private func saveKeychainDebounced(key: String, value: String) {
+        keychainDebounceTimers[key]?.cancel()
+        keychainDebounceTimers[key] = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            KeychainHelper.save(key: key, value: value)
+        }
+    }
+
     var openRouterApiKey: String {
-        didSet { KeychainHelper.save(key: "openRouterApiKey", value: openRouterApiKey) }
+        didSet { saveKeychainDebounced(key: "openRouterApiKey", value: openRouterApiKey) }
     }
 
     var voyageApiKey: String {
-        didSet { KeychainHelper.save(key: "voyageApiKey", value: voyageApiKey) }
+        didSet { saveKeychainDebounced(key: "voyageApiKey", value: voyageApiKey) }
     }
 
     var llmProvider: LLMProvider {
@@ -91,11 +119,38 @@ final class AppSettings {
     }
 
     var openAIEmbedApiKey: String {
-        didSet { KeychainHelper.save(key: "openAIEmbedApiKey", value: openAIEmbedApiKey) }
+        didSet { saveKeychainDebounced(key: "openAIEmbedApiKey", value: openAIEmbedApiKey) }
     }
 
     var openAIEmbedModel: String {
         didSet { UserDefaults.standard.set(openAIEmbedModel, forKey: "openAIEmbedModel") }
+    }
+
+    /// Bundle ID of the app to capture system audio from. Empty string = capture all apps.
+    var captureAppBundleID: String {
+        didSet { UserDefaults.standard.set(captureAppBundleID, forKey: "captureAppBundleID") }
+    }
+
+    /// Whether real-time AI suggestions are enabled.
+    /// When true, conversation excerpts are sent to the configured LLM/embedding provider
+    /// automatically after each "them" utterance.
+    var aiAssistEnabled: Bool {
+        didSet { UserDefaults.standard.set(aiAssistEnabled, forKey: "aiAssistEnabled") }
+    }
+
+    /// Whether speaker diarization is enabled for the system audio ("them") channel.
+    /// When true, DiarizerManager is initialized and each "them" utterance is labeled
+    /// "Speaker 1", "Speaker 2", etc. instead of the undifferentiated "Them".
+    var distinguishSpeakers: Bool {
+        didSet { UserDefaults.standard.set(distinguishSpeakers, forKey: "distinguishSpeakers") }
+    }
+
+    var showExperimentalFeatures: Bool {
+        didSet { UserDefaults.standard.set(showExperimentalFeatures, forKey: "showExperimentalFeatures") }
+    }
+
+    var asrProvider: ASRProviderKind {
+        didSet { UserDefaults.standard.set(asrProvider.rawValue, forKey: "asrProvider") }
     }
 
     /// Whether the user has acknowledged their obligation to comply with recording consent laws.
@@ -136,7 +191,16 @@ final class AppSettings {
         self.openAIEmbedBaseURL = defaults.string(forKey: "openAIEmbedBaseURL") ?? "http://localhost:8080"
         self.openAIEmbedApiKey = KeychainHelper.load(key: "openAIEmbedApiKey") ?? ""
         self.openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
+        self.captureAppBundleID = defaults.string(forKey: "captureAppBundleID") ?? ""
+        // Default to true so existing users keep current behaviour; they can disable in Settings
+        self.aiAssistEnabled = defaults.object(forKey: "aiAssistEnabled") == nil
+            ? true
+            : defaults.bool(forKey: "aiAssistEnabled")
         self.hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
+        self.distinguishSpeakers = defaults.bool(forKey: "distinguishSpeakers")  // default false
+        self.showExperimentalFeatures = defaults.bool(forKey: "showExperimentalFeatures")
+        let rawProvider = defaults.string(forKey: "asrProvider") ?? ASRProviderKind.parakeetV3.rawValue
+        self.asrProvider = ASRProviderKind(rawValue: rawProvider) ?? .parakeetV3
 
         // Default to true (hidden) if key has never been set
         if defaults.object(forKey: "hideFromScreenShare") == nil {
@@ -343,7 +407,7 @@ final class AppSettings {
 // MARK: - Keychain Helper
 
 enum KeychainHelper {
-    private static let service = "com.opengranola.app"
+    private static let service = "com.openoats.app"
 
     static func save(key: String, value: String) {
         guard let data = value.data(using: .utf8) else { return }

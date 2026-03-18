@@ -33,6 +33,7 @@ actor SessionStore {
 
         FileManager.default.createFile(atPath: currentFile!.path, contents: nil)
         fileHandle = try? FileHandle(forWritingTo: currentFile!)
+        fileHandle?.seekToEndOfFile()
     }
 
     func appendRecord(_ record: SessionRecord) {
@@ -40,7 +41,6 @@ actor SessionStore {
 
         do {
             let data = try encoder.encode(record)
-            fileHandle.seekToEndOfFile()
             fileHandle.write(data)
             fileHandle.write("\n".data(using: .utf8)!)
         } catch {
@@ -48,28 +48,41 @@ actor SessionStore {
         }
     }
 
-    /// Owns the delayed THEM write: sleeps 5 seconds to capture pipeline results, then writes.
-    /// The actor tracks in-flight delayed writes so `awaitPendingWrites()` can drain them.
+    /// Pending records waiting for the 5-second enrichment window to close.
+    private var pendingDelayedRecords: [(baseRecord: SessionRecord, suggestionEngine: SuggestionEngine?, transcriptStore: TranscriptStore?)] = []
+    /// Single coalescing task — cancelled and rescheduled on each new utterance.
+    private var delayedWriteTask: Task<Void, Never>?
+
+    /// Coalesces delayed writes: cancels the previous timer on each new utterance,
+    /// so at most 1 Task sleeps at a time. All records accumulated during the window
+    /// are flushed together when the 5-second silence elapses.
     func appendRecordDelayed(
         baseRecord: SessionRecord,
         suggestionEngine: SuggestionEngine?,
         transcriptStore: TranscriptStore?
     ) {
         pendingWrites += 1
-        Task { [weak self] in
+        pendingDelayedRecords.append((baseRecord, suggestionEngine, transcriptStore))
+        delayedWriteTask?.cancel()
+        delayedWriteTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
+            guard let self, !Task.isCancelled else { return }
+            await self.flushPendingDelayedRecords()
+        }
+    }
 
-            guard let self else { return }
-
-            // Capture pipeline results after delay
-            let decision = await suggestionEngine?.lastDecision
-            let latestSuggestion = await suggestionEngine?.suggestions.first
-            let summary = await transcriptStore?.conversationState.shortSummary
+    private func flushPendingDelayedRecords() async {
+        let records = pendingDelayedRecords
+        pendingDelayedRecords.removeAll()
+        for entry in records {
+            let decision = await entry.suggestionEngine?.lastDecision
+            let latestSuggestion = await entry.suggestionEngine?.suggestions.first
+            let summary = await entry.transcriptStore?.conversationState.shortSummary
 
             let enrichedRecord = SessionRecord(
-                speaker: baseRecord.speaker,
-                text: baseRecord.text,
-                timestamp: baseRecord.timestamp,
+                speaker: entry.baseRecord.speaker,
+                text: entry.baseRecord.text,
+                timestamp: entry.baseRecord.timestamp,
                 suggestions: latestSuggestion.map { [$0.text] },
                 kbHits: latestSuggestion?.kbHits.map { $0.sourceFile },
                 suggestionDecision: decision,
@@ -77,29 +90,28 @@ actor SessionStore {
                 conversationStateSummary: summary?.isEmpty == false ? summary : nil
             )
 
-            await self.appendRecord(enrichedRecord)
-
-            await self.decrementPendingWrites()
+            appendRecord(enrichedRecord)
+            pendingWrites -= 1
+            if pendingWrites == 0 {
+                let waiters = pendingWriteWaiters
+                pendingWriteWaiters.removeAll()
+                for waiter in waiters { waiter.resume() }
+            }
         }
     }
 
-    private func decrementPendingWrites() {
-        pendingWrites -= 1
-        if pendingWrites == 0 {
-            let waiters = pendingWriteWaiters
-            pendingWriteWaiters.removeAll()
-            for waiter in waiters {
-                waiter.resume()
-            }
-        }
+    /// Force-flush all pending delayed records immediately (e.g., before session end).
+    func forceFlushPendingWrites() async {
+        delayedWriteTask?.cancel()
+        delayedWriteTask = nil
+        await flushPendingDelayedRecords()
     }
 
     /// Suspends until all in-flight delayed writes have completed.
     func awaitPendingWrites() async {
         guard pendingWrites > 0 else { return }
-        await withCheckedContinuation { continuation in
-            pendingWriteWaiters.append(continuation)
-        }
+        // Force-flush immediately rather than waiting for the 5s timer
+        await forceFlushPendingWrites()
     }
 
     func endSession() {

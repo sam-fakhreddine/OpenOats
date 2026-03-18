@@ -130,7 +130,43 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
             }
 
+            Section("Experimental") {
+                Toggle("Show experimental features", isOn: $settings.showExperimentalFeatures)
+                    .font(.system(size: 12))
+
+                if settings.showExperimentalFeatures {
+                    Toggle("Distinguish speakers", isOn: $settings.distinguishSpeakers)
+                        .font(.system(size: 12))
+                    Text("When enabled, the system audio channel runs speaker diarization to label \"Them\" utterances as \"Speaker 1\", \"Speaker 2\", etc. Requires a one-time ~32 MB model download. Changes take effect on the next recording.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Picker("ASR Model", selection: $settings.asrProvider) {
+                        ForEach(ASRProviderKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .font(.system(size: 12))
+
+                    if settings.asrProvider.isExperimental {
+                        Label(
+                            "Experimental models are unsupported and may be less accurate.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .foregroundStyle(.yellow)
+                        .font(.footnote)
+                    }
+                }
+            }
+
             Section("Privacy") {
+                Toggle("Real-time AI suggestions", isOn: $settings.aiAssistEnabled)
+                    .font(.system(size: 12))
+                Text("When enabled, conversation excerpts are sent to your configured LLM and embedding provider after each \"them\" utterance to generate suggestions. Disable to keep all transcript data on-device.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
                 Toggle("Hide from screen sharing", isOn: $settings.hideFromScreenShare)
                     .font(.system(size: 12))
                 Text("When enabled, the app is invisible during screen sharing and recording.")

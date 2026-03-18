@@ -2,6 +2,9 @@ import Foundation
 
 /// Client for Ollama's OpenAI-compatible embeddings endpoint.
 actor OllamaEmbedClient {
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
     enum OllamaEmbedError: Error, LocalizedError {
         case httpError(Int, String)
         case invalidURL
@@ -29,7 +32,7 @@ actor OllamaEmbedClient {
         if let apiKey, !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try encoder.encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -42,7 +45,7 @@ actor OllamaEmbedClient {
             throw OllamaEmbedError.httpError(http.statusCode, msg)
         }
 
-        let decoded = try JSONDecoder().decode(EmbedResponse.self, from: data)
+        let decoded = try decoder.decode(EmbedResponse.self, from: data)
         guard !decoded.data.isEmpty else { throw OllamaEmbedError.emptyResponse }
 
         return decoded.data

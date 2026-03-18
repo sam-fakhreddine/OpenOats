@@ -1,4 +1,5 @@
-@preconcurrency import AVFoundation
+@preconcurrency import Accelerate
+import AVFoundation
 import CoreAudio
 import Foundation
 import os
@@ -11,6 +12,9 @@ final class MicCapture: @unchecked Sendable {
     private let _audioLevel = AudioLevel()
     private let _error = SyncString()
     private let _streamContinuation = OSAllocatedUnfairLock<AsyncStream<AVAudioPCMBuffer>.Continuation?>(uncheckedState: nil)
+    /// Serial queue used to hop off the AVAudioEngine render thread before yielding buffers
+    /// into the Swift Concurrency async stream. Render-thread yields cause EXC_BAD_ACCESS.
+    private let bufferQueue = DispatchQueue(label: "com.openoats.micbuffer", qos: .userInitiated)
 
     var audioLevel: Float { _audioLevel.value }
     var captureError: String? { _error.value }
@@ -94,7 +98,9 @@ final class MicCapture: @unchecked Sendable {
                     diagLog("[MIC-6] tap #\(tapCallCount): frames=\(buffer.frameLength) rms=\(rms) level=\(level.value)")
                 }
 
-                continuation.yield(buffer)
+                self.bufferQueue.async {
+                    self._streamContinuation.withLock { $0?.yield(buffer) }
+                }
             }
 
             diagLog("[MIC-5] tap installed, preparing engine...")
@@ -132,70 +138,12 @@ final class MicCapture: @unchecked Sendable {
     }
 
     private static func normalizedRMS(from buffer: AVAudioPCMBuffer) -> Float {
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(max(buffer.format.channelCount, 1))
+        guard let channelData = buffer.floatChannelData else { return 0 }
+        let frameLength = vDSP_Length(buffer.frameLength)
         guard frameLength > 0 else { return 0 }
-
-        if let channelData = buffer.floatChannelData {
-            return rms(
-                frameLength: frameLength,
-                channelCount: channelCount
-            ) { frame, channel in
-                if buffer.format.isInterleaved {
-                    let stride = channelCount
-                    return channelData[0][(frame * stride) + channel]
-                }
-                return channelData[channel][frame]
-            }
-        }
-
-        if let channelData = buffer.int16ChannelData {
-            let scale: Float = 1 / Float(Int16.max)
-            return rms(
-                frameLength: frameLength,
-                channelCount: channelCount
-            ) { frame, channel in
-                if buffer.format.isInterleaved {
-                    let stride = channelCount
-                    return Float(channelData[0][(frame * stride) + channel]) * scale
-                }
-                return Float(channelData[channel][frame]) * scale
-            }
-        }
-
-        if let channelData = buffer.int32ChannelData {
-            let scale: Float = 1 / Float(Int32.max)
-            return rms(
-                frameLength: frameLength,
-                channelCount: channelCount
-            ) { frame, channel in
-                if buffer.format.isInterleaved {
-                    let stride = channelCount
-                    return Float(channelData[0][(frame * stride) + channel]) * scale
-                }
-                return Float(channelData[channel][frame]) * scale
-            }
-        }
-
-        return 0
-    }
-
-    private static func rms(
-        frameLength: Int,
-        channelCount: Int,
-        sampleAt: (_ frame: Int, _ channel: Int) -> Float
-    ) -> Float {
-        var sum: Float = 0
-
-        for frame in 0..<frameLength {
-            for channel in 0..<channelCount {
-                let s = sampleAt(frame, channel)
-                sum += s * s
-            }
-        }
-
-        let sampleCount = Float(frameLength * channelCount)
-        return sampleCount > 0 ? sqrt(sum / sampleCount) : 0
+        var rms: Float = 0
+        vDSP_rmsqv(channelData[0], 1, &rms, frameLength)
+        return rms
     }
 
     // MARK: - List available input devices
@@ -300,13 +248,14 @@ final class MicCapture: @unchecked Sendable {
 }
 
 /// Simple thread-safe float holder for audio level.
+/// Uses OSAllocatedUnfairLock (os_unfair_lock) which is documented as safe
+/// on real-time audio render threads, unlike NSLock/pthread_mutex.
 final class AudioLevel: @unchecked Sendable {
-    private var _value: Float = 0
-    private let lock = NSLock()
+    private let _lock = OSAllocatedUnfairLock<Float>(uncheckedState: 0)
 
     var value: Float {
-        get { lock.withLock { _value } }
-        set { lock.withLock { _value = newValue } }
+        get { _lock.withLockUnchecked { $0 } }
+        set { _lock.withLockUnchecked { $0 = newValue } }
     }
 }
 

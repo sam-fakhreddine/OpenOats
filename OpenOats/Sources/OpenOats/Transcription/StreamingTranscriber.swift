@@ -5,11 +5,16 @@ import os
 /// Consumes an audio buffer stream, detects speech via Silero VAD,
 /// and transcribes completed speech segments via Parakeet-TDT.
 final class StreamingTranscriber: @unchecked Sendable {
-    private let asrManager: AsrManager
+    private let asrProvider: any ASRProvider
     private let vadManager: VadManager
     private let speaker: Speaker
+    private let diarizerManager: DiarizerManager?
     private let onPartial: @Sendable (String) -> Void
-    private let onFinal: @Sendable (String) -> Void
+    private let onFinal: @Sendable (String, UUID) -> Void
+    /// Callback fired when diarization re-labels an utterance. Arguments: (utteranceID, newSpeaker).
+    var onSpeakerIdentified: (@Sendable (UUID, Speaker) -> Void)?
+    /// Ring of (utteranceID, wallClockTime) for utterances that arrived during the current diarization window.
+    private var pendingUtterances: [(id: UUID, time: Date)] = []
     private let log = Logger(subsystem: "com.openoats", category: "StreamingTranscriber")
 
     /// Resampler from source format to 16kHz mono Float32.
@@ -22,15 +27,17 @@ final class StreamingTranscriber: @unchecked Sendable {
     )!
 
     init(
-        asrManager: AsrManager,
+        asrProvider: any ASRProvider,
         vadManager: VadManager,
         speaker: Speaker,
+        diarizerManager: DiarizerManager? = nil,
         onPartial: @escaping @Sendable (String) -> Void,
-        onFinal: @escaping @Sendable (String) -> Void
+        onFinal: @escaping @Sendable (String, UUID) -> Void
     ) {
-        self.asrManager = asrManager
+        self.asrProvider = asrProvider
         self.vadManager = vadManager
         self.speaker = speaker
+        self.diarizerManager = diarizerManager
         self.onPartial = onPartial
         self.onFinal = onFinal
     }
@@ -39,34 +46,62 @@ final class StreamingTranscriber: @unchecked Sendable {
     private static let vadChunkSize = 4096
     /// Flush speech for transcription every ~3 seconds (48,000 samples at 16kHz).
     private static let flushInterval = 48_000
+    /// Diarization chunk: 10 seconds at 16kHz.
+    private static let diarizationChunkSize = 160_000
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
         var vadState = await vadManager.makeStreamState()
         var speechSamples: [Float] = []
         var vadBuffer: [Float] = []
+        var vadHead: Int = 0
         var isSpeaking = false
         var bufferCount = 0
+        // Diarization accumulator — only used when diarizerManager != nil
+        var pcmAccumulator: [Float] = []
+        var chunkStartTime: TimeInterval = Date().timeIntervalSinceReferenceDate
+        var chunkStartDate: Date = Date()
 
         for await buffer in stream {
             bufferCount += 1
             if bufferCount <= 3 {
                 let fmt = buffer.format
-                diagLog("[\(speaker.rawValue)] buffer #\(bufferCount): frames=\(buffer.frameLength) sr=\(fmt.sampleRate) ch=\(fmt.channelCount) interleaved=\(fmt.isInterleaved) common=\(fmt.commonFormat.rawValue)")
+                diagLog("[\(speaker.displayLabel)] buffer #\(bufferCount): frames=\(buffer.frameLength) sr=\(fmt.sampleRate) ch=\(fmt.channelCount) interleaved=\(fmt.isInterleaved) common=\(fmt.commonFormat.rawValue)")
             }
 
             guard let samples = extractSamples(buffer) else { continue }
 
             if bufferCount <= 3 {
                 let maxVal = samples.max() ?? 0
-                diagLog("[\(speaker.rawValue)] samples: count=\(samples.count) max=\(maxVal)")
+                diagLog("[\(speaker.displayLabel)] samples: count=\(samples.count) max=\(maxVal)")
+            }
+
+            // Feed diarization accumulator when diarizer is available
+            if diarizerManager != nil {
+                if pcmAccumulator.isEmpty {
+                    chunkStartDate = Date()
+                    chunkStartTime = chunkStartDate.timeIntervalSinceReferenceDate
+                }
+                pcmAccumulator.append(contentsOf: samples)
+                if pcmAccumulator.count >= Self.diarizationChunkSize {
+                    let chunk = Array(pcmAccumulator.prefix(Self.diarizationChunkSize))
+                    pcmAccumulator.removeFirst(Self.diarizationChunkSize)
+                    await flushDiarizationChunk(chunk, chunkStartDate: chunkStartDate)
+                    chunkStartDate = Date()
+                    chunkStartTime = chunkStartDate.timeIntervalSinceReferenceDate
+                }
             }
 
             vadBuffer.append(contentsOf: samples)
 
-            while vadBuffer.count >= Self.vadChunkSize {
-                let chunk = Array(vadBuffer.prefix(Self.vadChunkSize))
-                vadBuffer.removeFirst(Self.vadChunkSize)
+            while vadBuffer.count - vadHead >= Self.vadChunkSize {
+                let chunk = Array(vadBuffer[vadHead..<vadHead + Self.vadChunkSize])
+                vadHead += Self.vadChunkSize
+                // Compact when head has advanced past half the buffer to bound memory growth
+                if vadHead > vadBuffer.count / 2 {
+                    vadBuffer.removeFirst(vadHead)
+                    vadHead = 0
+                }
 
                 do {
                     let result = try await vadManager.processStreamingChunk(
@@ -83,11 +118,11 @@ final class StreamingTranscriber: @unchecked Sendable {
                         case .speechStart:
                             isSpeaking = true
                             speechSamples.removeAll(keepingCapacity: true)
-                            diagLog("[\(self.speaker.rawValue)] speech start")
+                            diagLog("[\(self.speaker.displayLabel)] speech start")
 
                         case .speechEnd:
                             isSpeaking = false
-                            diagLog("[\(self.speaker.rawValue)] speech end, samples=\(speechSamples.count)")
+                            diagLog("[\(self.speaker.displayLabel)] speech end, samples=\(speechSamples.count)")
                             if speechSamples.count > 8000 {
                                 let segment = speechSamples
                                 speechSamples.removeAll(keepingCapacity: true)
@@ -117,15 +152,57 @@ final class StreamingTranscriber: @unchecked Sendable {
         if speechSamples.count > 8000 {
             await transcribeSegment(speechSamples)
         }
+
+        // Flush any remaining PCM that did not reach a full 10s diarization chunk
+        if diarizerManager != nil && !pcmAccumulator.isEmpty {
+            await flushDiarizationChunk(pcmAccumulator, chunkStartDate: chunkStartDate)
+            pcmAccumulator.removeAll()
+        }
+    }
+
+    // MARK: - Diarization
+
+    /// Runs diarization on a full 10-second PCM chunk and re-labels any buffered utterances
+    /// whose timestamps fall within each speaker segment.
+    private func flushDiarizationChunk(_ chunk: [Float], chunkStartDate: Date) async {
+        guard let dm = diarizerManager else { return }
+        let atTime = chunkStartDate.timeIntervalSinceReferenceDate
+        do {
+            let result = try dm.performCompleteDiarization(chunk, sampleRate: 16000, atTime: atTime)
+            let segments = result.segments
+            guard !segments.isEmpty else { return }
+
+            let pending = pendingUtterances
+            pendingUtterances.removeAll(keepingCapacity: true)
+
+            for entry in pending {
+                let offsetSeconds = Float(entry.time.timeIntervalSince(chunkStartDate))
+                if let seg = segments.first(where: {
+                    $0.startTimeSeconds <= offsetSeconds && offsetSeconds < $0.endTimeSeconds
+                }) {
+                    let rawID = seg.speakerId
+                    let index: Int
+                    if rawID.hasPrefix("speaker_"), let n = Int(rawID.dropFirst("speaker_".count)) {
+                        index = n + 1
+                    } else {
+                        index = 1
+                    }
+                    onSpeakerIdentified?(entry.id, .namedSpeaker(id: index))
+                }
+            }
+        } catch {
+            diagLog("[DIARIZE-ERR] \(error.localizedDescription)")
+        }
     }
 
     private func transcribeSegment(_ samples: [Float]) async {
         do {
-            let result = try await asrManager.transcribe(samples)
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = try await asrProvider.transcribe(samples, sampleRate: 16000).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
-            log.info("[\(self.speaker.rawValue)] transcribed: \(text.prefix(80))")
-            onFinal(text)
+            let utteranceID = UUID()
+            pendingUtterances.append((id: utteranceID, time: Date()))
+            log.info("[\(self.speaker.displayLabel)] transcribed: \(text.prefix(80))")
+            onFinal(text, utteranceID)
         } catch {
             log.error("ASR error: \(error.localizedDescription)")
         }

@@ -1,8 +1,47 @@
 import Foundation
 
-enum Speaker: String, Codable, Sendable {
+enum Speaker: Hashable, Codable, Sendable {
     case you
-    case them
+    case them           // legacy / undifferentiated
+    case namedSpeaker(id: Int)  // "Speaker 1", "Speaker 2", etc.
+
+    // MARK: Codable
+
+    private enum CodingKeys: String, CodingKey { case raw }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        switch raw {
+        case "you":   self = .you
+        case "them":  self = .them
+        default:
+            if raw.hasPrefix("speaker_"),
+               let id = Int(raw.dropFirst("speaker_".count)) {
+                self = .namedSpeaker(id: id)
+            } else {
+                self = .them   // unknown values fall back to .them
+            }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .you:                    try container.encode("you")
+        case .them:                   try container.encode("them")
+        case .namedSpeaker(let id):   try container.encode("speaker_\(id)")
+        }
+    }
+
+    /// Human-readable label for UI display.
+    var displayLabel: String {
+        switch self {
+        case .you:                    return "You"
+        case .them:                   return "Them"
+        case .namedSpeaker(let id):   return "Speaker \(id)"
+        }
+    }
 }
 
 struct Utterance: Identifiable, Codable, Sendable {
@@ -13,6 +52,14 @@ struct Utterance: Identifiable, Codable, Sendable {
 
     init(text: String, speaker: Speaker, timestamp: Date = .now) {
         self.id = UUID()
+        self.text = text
+        self.speaker = speaker
+        self.timestamp = timestamp
+    }
+
+    /// Internal init that preserves an existing ID (used by relabelUtterance).
+    init(id: UUID, text: String, speaker: Speaker, timestamp: Date) {
+        self.id = id
         self.text = text
         self.speaker = speaker
         self.timestamp = timestamp

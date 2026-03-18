@@ -14,8 +14,11 @@ final class TranscriptStore {
 
     func append(_ utterance: Utterance) {
         utterances.append(utterance)
-        if utterance.speaker == .them {
+        switch utterance.speaker {
+        case .them, .namedSpeaker:
             themUtterancesSinceStateUpdate += 1
+        case .you:
+            break
         }
     }
 
@@ -32,13 +35,26 @@ final class TranscriptStore {
         themUtterancesSinceStateUpdate = 0
     }
 
+    /// Re-labels a finalised utterance with a diarization-derived speaker.
+    /// No-op if the utterance ID is not found (already persisted or not present).
+    func relabelUtterance(id: UUID, speaker: Speaker) {
+        guard let idx = utterances.firstIndex(where: { $0.id == id }) else { return }
+        let old = utterances[idx]
+        utterances[idx] = Utterance(id: old.id, text: old.text, speaker: speaker, timestamp: old.timestamp)
+    }
+
     /// Whether conversation state needs a refresh (every 2-3 finalized them-utterances)
     var needsStateUpdate: Bool {
         themUtterancesSinceStateUpdate >= 2
     }
 
     var lastThemUtterance: Utterance? {
-        utterances.last(where: { $0.speaker == .them })
+        utterances.last(where: {
+            switch $0.speaker {
+            case .them, .namedSpeaker: return true
+            case .you: return false
+            }
+        })
     }
 
     /// Last N utterances for prompt context
@@ -53,6 +69,11 @@ final class TranscriptStore {
 
     /// Recent them-only utterances for trigger analysis
     var recentThemUtterances: [Utterance] {
-        utterances.suffix(10).filter { $0.speaker == .them }
+        utterances.suffix(10).filter {
+            switch $0.speaker {
+            case .them, .namedSpeaker: return true
+            case .you: return false
+            }
+        }
     }
 }
