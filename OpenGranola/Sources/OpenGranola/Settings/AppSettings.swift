@@ -80,6 +80,11 @@ final class AppSettings {
         didSet { UserDefaults.standard.set(ollamaEmbedModel, forKey: "ollamaEmbedModel") }
     }
 
+    /// Whether the user has acknowledged their obligation to comply with recording consent laws.
+    var hasAcknowledgedRecordingConsent: Bool {
+        didSet { UserDefaults.standard.set(hasAcknowledgedRecordingConsent, forKey: "hasAcknowledgedRecordingConsent") }
+    }
+
     /// When true, all app windows are invisible to screen sharing / recording.
     var hideFromScreenShare: Bool {
         didSet {
@@ -91,11 +96,12 @@ final class AppSettings {
     init() {
         let defaults = UserDefaults.standard
 
-        // One-time migration from old "On The Spot" bundle ID
+        // One-time migrations from previous bundle IDs
         Self.migrateFromOldBundleIfNeeded(defaults: defaults)
+        Self.migrateFromOpenGranolaIfNeeded(defaults: defaults)
 
         let defaultKBPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/OpenGranola").path
+            .appendingPathComponent("Documents/OpenOats").path
         self.kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? defaultKBPath
         self.selectedModel = defaults.string(forKey: "selectedModel") ?? "google/gemini-3-flash-preview"
         self.transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "en-US"
@@ -107,6 +113,8 @@ final class AppSettings {
         self.ollamaBaseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
         self.ollamaLLMModel = defaults.string(forKey: "ollamaLLMModel") ?? "qwen3:8b"
         self.ollamaEmbedModel = defaults.string(forKey: "ollamaEmbedModel") ?? "nomic-embed-text"
+        self.hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
+
         // Default to true (hidden) if key has never been set
         if defaults.object(forKey: "hideFromScreenShare") == nil {
             self.hideFromScreenShare = true
@@ -147,6 +155,37 @@ final class AppSettings {
 
         // Migrate Keychain entries from old service
         let oldService = "com.onthespot.app"
+        let keychainKeys = ["openRouterApiKey", "voyageApiKey"]
+        for key in keychainKeys {
+            if KeychainHelper.load(key: key) == nil,
+               let oldValue = Self.loadKeychain(service: oldService, key: key) {
+                KeychainHelper.save(key: key, value: oldValue)
+            }
+        }
+    }
+
+    /// Migrate settings from the previous "OpenGranola" (com.opengranola.app) bundle.
+    private static func migrateFromOpenGranolaIfNeeded(defaults: UserDefaults) {
+        let migrationKey = "didMigrateFromOpenGranola"
+        guard !defaults.bool(forKey: migrationKey) else { return }
+        defer { defaults.set(true, forKey: migrationKey) }
+
+        guard let oldDefaults = UserDefaults(suiteName: "com.opengranola.app") else { return }
+
+        let keysToMigrate = [
+            "kbFolderPath", "selectedModel", "transcriptionLocale", "inputDeviceID",
+            "llmProvider", "embeddingProvider", "ollamaBaseURL", "ollamaLLMModel",
+            "ollamaEmbedModel", "hideFromScreenShare",
+            "isTranscriptExpanded", "hasCompletedOnboarding",
+            "hasAcknowledgedRecordingConsent"
+        ]
+        for key in keysToMigrate {
+            if let value = oldDefaults.object(forKey: key), defaults.object(forKey: key) == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
+
+        let oldService = "com.opengranola.app"
         let keychainKeys = ["openRouterApiKey", "voyageApiKey"]
         for key in keychainKeys {
             if KeychainHelper.load(key: key) == nil,
@@ -203,7 +242,7 @@ final class AppSettings {
 // MARK: - Keychain Helper
 
 enum KeychainHelper {
-    private static let service = "com.opengranola.app"
+    private static let service = "com.openoats.app"
 
     static func save(key: String, value: String) {
         guard let data = value.data(using: .utf8) else { return }
