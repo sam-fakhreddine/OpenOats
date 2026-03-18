@@ -18,6 +18,7 @@ struct OpenOatsApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
         .defaultSize(width: 320, height: 560)
         .commands {
             CommandGroup(after: .appInfo) {
