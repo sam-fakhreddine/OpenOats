@@ -185,7 +185,7 @@ final class SuggestionEngine {
         let recentThem = transcriptStore.recentThemUtterances.suffix(3)
         for recent in recentThem {
             if recent.id == utterance.id { continue }
-            if textSimilarity(text, recent.text) > 0.8 { return false }
+            if TextSimilarity.jaccard(text, recent.text) > 0.8 { return false }
         }
 
         return true
@@ -632,15 +632,5 @@ final class SuggestionEngine {
             s = String(s.dropLast(3))
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Simple word-overlap similarity (Jaccard) for near-duplicate detection.
-    private func textSimilarity(_ a: String, _ b: String) -> Double {
-        let setA = Set(a.lowercased().split(separator: " "))
-        let setB = Set(b.lowercased().split(separator: " "))
-        guard !setA.isEmpty || !setB.isEmpty else { return 1.0 }
-        let intersection = setA.intersection(setB).count
-        let union = setA.union(setB).count
-        return Double(intersection) / Double(union)
     }
 }
