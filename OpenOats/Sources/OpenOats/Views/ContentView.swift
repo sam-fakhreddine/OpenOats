@@ -220,6 +220,9 @@ struct ContentView: View {
         .onChange(of: settings.transcriptionModel) {
             transcriptionEngine?.refreshModelAvailability()
         }
+        .onChange(of: isRunning) {
+            coordinator.isRecording = isRunning
+        }
         .onChange(of: settings.inputDeviceID) {
             if isRunning {
                 Task {
