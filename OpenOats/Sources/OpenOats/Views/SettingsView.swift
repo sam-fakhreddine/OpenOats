@@ -165,6 +165,12 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
+                Toggle("Refine transcript", isOn: $settings.enableTranscriptRefinement)
+                    .font(.system(size: 12))
+                Text("Uses your LLM provider to clean up filler words and fix punctuation in real-time. Original text is preserved.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Custom Keywords")
                         .font(.system(size: 11, weight: .medium))

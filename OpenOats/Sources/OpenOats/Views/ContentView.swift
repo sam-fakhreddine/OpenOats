@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var transcriptionEngine: TranscriptionEngine?
     @State private var suggestionEngine: SuggestionEngine?
     @State private var transcriptLogger: TranscriptLogger?
+    @State private var refinementEngine: TranscriptRefinementEngine?
     @State private var audioRecorder: AudioRecorder?
     @State private var overlayManager = OverlayManager()
     @AppStorage("isTranscriptExpanded") private var isTranscriptExpanded = true
@@ -190,6 +191,10 @@ struct ContentView: View {
                 transcriptLogger = TranscriptLogger(
                     directory: URL(fileURLWithPath: settings.notesFolderPath)
                 )
+                refinementEngine = TranscriptRefinementEngine(
+                    settings: settings,
+                    transcriptStore: transcriptStore
+                )
                 audioRecorder = AudioRecorder(
                     outputDirectory: URL(fileURLWithPath: settings.notesFolderPath)
                 )
@@ -357,7 +362,8 @@ struct ContentView: View {
                 transcriptStore: transcriptStore,
                 transcriptionEngine: transcriptionEngine,
                 transcriptLogger: transcriptLogger,
-                audioRecorder: settings.saveAudioRecording ? audioRecorder : nil
+                audioRecorder: settings.saveAudioRecording ? audioRecorder : nil,
+                refinementEngine: settings.enableTranscriptRefinement ? refinementEngine : nil
             )
         }
     }
@@ -383,7 +389,7 @@ struct ContentView: View {
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "HH:mm:ss"
         let lines = transcriptStore.utterances.map { u in
-            "[\(timeFmt.string(from: u.timestamp))] \(u.speaker == .you ? "You" : "Them"): \(u.text)"
+            "[\(timeFmt.string(from: u.timestamp))] \(u.speaker == .you ? "You" : "Them"): \(u.displayText)"
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
@@ -425,6 +431,13 @@ struct ContentView: View {
             )
         }
 
+        // Trigger transcript refinement if enabled
+        if settings.enableTranscriptRefinement, let engine = refinementEngine {
+            Task {
+                await engine.refine(last)
+            }
+        }
+
         // Trigger suggestions on THEM utterance
         if last.speaker == .them {
             suggestionEngine?.onThemUtterance(last)
@@ -438,6 +451,7 @@ struct ContentView: View {
             Task {
                 await coordinator.sessionStore.appendRecordDelayed(
                     baseRecord: baseRecord,
+                    utteranceID: last.id,
                     suggestionEngine: suggestionEngine,
                     transcriptStore: transcriptStore
                 )

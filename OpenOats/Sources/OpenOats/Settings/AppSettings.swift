@@ -311,6 +311,18 @@ final class AppSettings {
         didSet { UserDefaults.standard.set(saveAudioRecording, forKey: "saveAudioRecording") }
     }
 
+    /// When true, uses the LLM to clean up filler words and fix punctuation in real-time.
+    @ObservationIgnored nonisolated(unsafe) private var _enableTranscriptRefinement: Bool
+    var enableTranscriptRefinement: Bool {
+        get { access(keyPath: \.enableTranscriptRefinement); return _enableTranscriptRefinement }
+        set {
+            withMutation(keyPath: \.enableTranscriptRefinement) {
+                _enableTranscriptRefinement = newValue
+                UserDefaults.standard.set(newValue, forKey: "enableTranscriptRefinement")
+            }
+        }
+    }
+
     /// When true, all app windows are invisible to screen sharing / recording.
     @ObservationIgnored nonisolated(unsafe) private var _hideFromScreenShare: Bool
     var hideFromScreenShare: Bool {
@@ -356,6 +368,7 @@ final class AppSettings {
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
         self.saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
+        self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
 
         // Default to true (shown) if key has never been set
         if defaults.object(forKey: "showLiveTranscript") == nil {

@@ -106,7 +106,8 @@ final class NotesEngine {
 
         for record in records {
             let label = record.speaker == .you ? "You" : "Them"
-            let line = "[\(timeFmt.string(from: record.timestamp))] \(label): \(record.text)"
+            let bestText = record.refinedText ?? record.text
+            let line = "[\(timeFmt.string(from: record.timestamp))] \(label): \(bestText)"
             totalChars += line.count
             lines.append(line)
         }

@@ -46,6 +46,12 @@ final class TranscriptStore {
         return true
     }
 
+    /// Update an existing utterance's refined text by ID, without triggering suggestion regeneration.
+    func updateRefinedText(id: UUID, refinedText: String?, status: RefinementStatus) {
+        guard let index = utterances.firstIndex(where: { $0.id == id }) else { return }
+        utterances[index] = utterances[index].withRefinement(text: refinedText, status: status)
+    }
+
     func clear() {
         utterances.removeAll()
         volatileYouText = ""

@@ -35,11 +35,12 @@ actor TranscriptLogger {
         fileHandle?.seekToEndOfFile()
     }
 
-    func append(speaker: String, text: String, timestamp: Date) {
+    func append(speaker: String, text: String, timestamp: Date, refinedText: String? = nil) {
         guard let fileHandle else { return }
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "HH:mm:ss"
-        let line = "[\(timeFmt.string(from: timestamp))] \(speaker): \(text)\n"
+        let displayText = refinedText ?? text
+        let line = "[\(timeFmt.string(from: timestamp))] \(speaker): \(displayText)\n"
         if let data = line.data(using: .utf8) {
             fileHandle.seekToEndOfFile()
             fileHandle.write(data)

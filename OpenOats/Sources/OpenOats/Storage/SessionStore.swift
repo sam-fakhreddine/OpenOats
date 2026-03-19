@@ -52,6 +52,7 @@ actor SessionStore {
     /// The actor tracks in-flight delayed writes so `awaitPendingWrites()` can drain them.
     func appendRecordDelayed(
         baseRecord: SessionRecord,
+        utteranceID: UUID? = nil,
         suggestionEngine: SuggestionEngine?,
         transcriptStore: TranscriptStore?
     ) {
@@ -66,6 +67,14 @@ actor SessionStore {
             let latestSuggestion = await suggestionEngine?.suggestions.first
             let summary = await transcriptStore?.conversationState.shortSummary
 
+            // Capture refined text from transcript store (may have been updated by refinement engine)
+            let refinedText: String?
+            if let utteranceID, let store = transcriptStore {
+                refinedText = await store.utterances.first(where: { $0.id == utteranceID })?.refinedText
+            } else {
+                refinedText = baseRecord.refinedText
+            }
+
             let enrichedRecord = SessionRecord(
                 speaker: baseRecord.speaker,
                 text: baseRecord.text,
@@ -74,7 +83,8 @@ actor SessionStore {
                 kbHits: latestSuggestion?.kbHits.map { $0.sourceFile },
                 suggestionDecision: decision,
                 surfacedSuggestionText: decision?.shouldSurface == true ? latestSuggestion?.text : nil,
-                conversationStateSummary: summary?.isEmpty == false ? summary : nil
+                conversationStateSummary: summary?.isEmpty == false ? summary : nil,
+                refinedText: refinedText
             )
 
             await self.appendRecord(enrichedRecord)

@@ -97,10 +97,14 @@ final class AppCoordinator {
         transcriptStore: TranscriptStore,
         transcriptionEngine: TranscriptionEngine?,
         transcriptLogger: TranscriptLogger?,
-        audioRecorder: AudioRecorder? = nil
+        audioRecorder: AudioRecorder? = nil,
+        refinementEngine: TranscriptRefinementEngine? = nil
     ) async {
         // 1. Drain audio buffers (flush final speech)
         await transcriptionEngine?.finalize()
+
+        // 1b. Drain pending refinements (5-second timeout)
+        await refinementEngine?.drain(timeout: .seconds(5))
 
         // 2. Drain delayed JSONL writes
         await sessionStore.awaitPendingWrites()
