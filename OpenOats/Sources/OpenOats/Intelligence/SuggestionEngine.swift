@@ -51,12 +51,17 @@ final class SuggestionEngine {
     }
 
     /// Returns the base URL for the current LLM provider (nil uses the default OpenRouter URL).
+    /// Throws a fatal error for Ollama if the URL is invalid, preventing silent fallback to OpenRouter.
     private var llmBaseURL: URL? {
         switch settings.llmProvider {
         case .openRouter: return nil
         case .ollama:
             let base = settings.ollamaBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            return URL(string: base + "/v1/chat/completions")
+            guard let url = URL(string: base + "/v1/chat/completions") else {
+                print("[SuggestionEngine] Invalid Ollama URL: \(settings.ollamaBaseURL)")
+                return nil
+            }
+            return url
         }
     }
 
@@ -81,7 +86,7 @@ final class SuggestionEngine {
         case .openRouter:
             guard !settings.openRouterApiKey.isEmpty else { return }
         case .ollama:
-            break // No API key needed
+            guard llmBaseURL != nil else { return }
         }
 
         currentTask = Task {

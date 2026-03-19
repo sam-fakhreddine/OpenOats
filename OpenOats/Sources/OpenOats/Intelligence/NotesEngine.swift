@@ -35,7 +35,12 @@ final class NotesEngine {
         case .ollama:
             apiKey = nil
             let base = settings.ollamaBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            baseURL = URL(string: base + "/v1/chat/completions")
+            guard let ollamaURL = URL(string: base + "/v1/chat/completions") else {
+                error = "Invalid Ollama URL: \(settings.ollamaBaseURL)"
+                isGenerating = false
+                return
+            }
+            baseURL = ollamaURL
             model = settings.ollamaLLMModel
         }
 
