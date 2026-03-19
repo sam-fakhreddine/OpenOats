@@ -306,6 +306,11 @@ final class AppSettings {
         }
     }
 
+    /// When true, a local .m4a audio file is saved alongside each transcript.
+    var saveAudioRecording: Bool {
+        didSet { UserDefaults.standard.set(saveAudioRecording, forKey: "saveAudioRecording") }
+    }
+
     /// When true, all app windows are invisible to screen sharing / recording.
     @ObservationIgnored nonisolated(unsafe) private var _hideFromScreenShare: Bool
     var hideFromScreenShare: Bool {
@@ -350,6 +355,7 @@ final class AppSettings {
         self._openAIEmbedApiKey = KeychainHelper.load(key: "openAIEmbedApiKey") ?? ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
+        self.saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
 
         // Default to true (shown) if key has never been set
         if defaults.object(forKey: "showLiveTranscript") == nil {
