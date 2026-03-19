@@ -152,7 +152,7 @@ struct ContentView: View {
         }
     }
 
-    private var contentWithEventHandlers: some View {
+    private var contentWithLifecycle: some View {
         contentWithOverlay
         .onChange(of: showOnboarding) {
             if !showOnboarding {
@@ -160,7 +160,6 @@ struct ContentView: View {
             }
         }
         .onChange(of: showConsentSheet) {
-            // Auto-start session after consent is acknowledged
             if !showConsentSheet && settings.hasAcknowledgedRecordingConsent && !isRunning {
                 startSession()
             }
@@ -191,6 +190,10 @@ struct ContentView: View {
         .onChange(of: coordinator.pendingExternalCommand?.id) {
             handlePendingExternalCommandIfPossible()
         }
+    }
+
+    private var contentWithEventHandlers: some View {
+        contentWithLifecycle
         .onChange(of: settings.kbFolderPath) {
             if settings.kbFolderPath.isEmpty {
                 knowledgeBase?.clear()
@@ -226,10 +229,6 @@ struct ContentView: View {
             return .handled
         }
         .task {
-            // Poll audio level in a proper MainActor Swift Task context.
-            // Using .onReceive(Timer.publish) runs in a Combine/GCD context that
-            // doesn't satisfy Swift's MainActor executor check when accessing
-            // @MainActor-isolated properties, causing EXC_BAD_ACCESS crashes.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let engine = transcriptionEngine else {
