@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var showConsentSheet = false
     @State private var audioLevel: Float = 0
     @State private var isHoveringNotes = false
+    @State private var isHoveringCopy = false
 
     var body: some View {
         bodyWithModifiers
@@ -100,8 +101,12 @@ struct ContentView: View {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
+                                    .padding(4)
+                                    .background(isHoveringCopy ? Color.primary.opacity(0.06) : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
                             .buttonStyle(.plain)
+                            .onHover { hovering in isHoveringCopy = hovering }
                             .help("Copy transcript")
                         }
                     }

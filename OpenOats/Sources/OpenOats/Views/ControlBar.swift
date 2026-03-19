@@ -11,6 +11,8 @@ struct ControlBar: View {
     let onToggle: () -> Void
     let onConfirmDownload: () -> Void
 
+    @State private var isHoveringToggle = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Error banner
@@ -81,10 +83,13 @@ struct ControlBar: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(isRunning ? Color.green.opacity(0.1) : Color.accentColor)
+                    .background(isRunning
+                        ? Color.green.opacity(isHoveringToggle ? 0.18 : 0.1)
+                        : Color.accentColor.opacity(isHoveringToggle ? 0.85 : 1.0))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .onHover { hovering in isHoveringToggle = hovering }
 
                 // Audio level bars when running
                 if isRunning {
