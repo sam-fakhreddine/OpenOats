@@ -80,6 +80,7 @@ final class TranscriptionEngine {
     private var micAsrManager: AsrManager?
     private var systemAsrManager: AsrManager?
     private var qwen3Manager: Qwen3AsrManager?
+    private var whisperManager: WhisperKitManager?
     private var vadManager: VadManager?
     private var currentTranscriptionModel: TranscriptionModel?
 
@@ -163,6 +164,7 @@ final class TranscriptionEngine {
                 self.micAsrManager = micAsr
                 self.systemAsrManager = systemAsr
                 self.qwen3Manager = nil
+                self.whisperManager = nil
             case .parakeetV3:
                 let models = try await AsrModels.downloadAndLoad(version: .v3)
                 assetStatus = "Initializing \(transcriptionModel.displayName)..."
@@ -184,6 +186,7 @@ final class TranscriptionEngine {
                 self.micAsrManager = micAsr
                 self.systemAsrManager = systemAsr
                 self.qwen3Manager = nil
+                self.whisperManager = nil
             case .qwen3ASR06B:
                 assetStatus = "Initializing \(transcriptionModel.displayName)..."
                 let modelsDirectory = try await Qwen3AsrModels.download()
@@ -192,6 +195,17 @@ final class TranscriptionEngine {
                 self.qwen3Manager = qwen3
                 self.micAsrManager = nil
                 self.systemAsrManager = nil
+                self.whisperManager = nil
+            case .whisperBase, .whisperSmall:
+                guard let variant = transcriptionModel.whisperVariant else {
+                    fatalError("Whisper model without variant")
+                }
+                let manager = WhisperKitManager(variant: variant)
+                try await manager.setup()
+                self.whisperManager = manager
+                self.micAsrManager = nil
+                self.systemAsrManager = nil
+                self.qwen3Manager = nil
             }
 
             assetStatus = "Loading VAD model..."
@@ -545,6 +559,17 @@ final class TranscriptionEngine {
                 onPartial: onPartial,
                 onFinal: onFinal
             )
+        case .whisperBase, .whisperSmall:
+            guard let whisperManager else {
+                fatalError("Whisper transcription requested without an initialized WhisperKitManager")
+            }
+            return StreamingTranscriber(
+                whisperManager: whisperManager,
+                vadManager: vadManager,
+                speaker: speaker,
+                onPartial: onPartial,
+                onFinal: onFinal
+            )
         }
     }
 
@@ -579,6 +604,10 @@ final class TranscriptionEngine {
             )
         case .qwen3ASR06B:
             return !Qwen3AsrModels.modelsExist(at: Qwen3AsrModels.defaultCacheDirectory())
+        case .whisperBase:
+            return !WhisperKitManager.modelExists(variant: .base)
+        case .whisperSmall:
+            return !WhisperKitManager.modelExists(variant: .small)
         }
     }
 
