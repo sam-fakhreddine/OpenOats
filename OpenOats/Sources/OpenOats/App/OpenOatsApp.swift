@@ -35,6 +35,12 @@ struct OpenOatsApp: App {
                     openNotesWindow()
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+
+                Button("GitHub Repository...") {
+                    if let url = URL(string: "https://github.com/yazinsai/OpenOats") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
             }
         }
 
