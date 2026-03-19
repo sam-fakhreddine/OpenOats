@@ -49,6 +49,13 @@ The app will ask you to acknowledge these obligations before your first recordin
 
 Grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenOats/releases/latest).
 
+Or install via Homebrew:
+
+```bash
+brew tap yazinsai/openoats https://github.com/yazinsai/OpenOats
+brew install --cask yazinsai/openoats/openoats
+```
+
 Or build from source:
 
 ```bash
