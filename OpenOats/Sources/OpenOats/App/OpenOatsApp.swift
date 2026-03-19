@@ -15,6 +15,7 @@ struct OpenOatsApp: App {
             ContentView(settings: settings)
                 .environment(coordinator)
                 .onAppear {
+                    appDelegate.coordinator = coordinator
                     settings.applyScreenShareVisibility()
                 }
                 .onOpenURL { url in
@@ -61,6 +62,30 @@ extension OpenOatsApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowObserver: Any?
+    var coordinator: AppCoordinator?
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        guard let coordinator else { return nil }
+        let menu = NSMenu()
+        if coordinator.isRecording {
+            let item = NSMenuItem(title: "Stop Recording", action: #selector(stopRecording), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        } else {
+            let item = NSMenuItem(title: "Start Recording", action: #selector(startRecording), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func startRecording() {
+        coordinator?.queueExternalCommand(.startSession)
+    }
+
+    @objc private func stopRecording() {
+        coordinator?.queueExternalCommand(.stopSession)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let hidden = UserDefaults.standard.object(forKey: "hideFromScreenShare") == nil

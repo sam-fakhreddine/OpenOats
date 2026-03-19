@@ -31,6 +31,8 @@ final class AppCoordinator {
     var lastEndedSession: SessionIndex?
     var pendingExternalCommand: ExternalCommandRequest?
     var requestedSessionSelectionID: String?
+    /// Reflects whether a transcription session is currently active (set by ContentView).
+    var isRecording = false
     private(set) var sessionHistory: [SessionIndex] = []
 
     /// The template snapshot frozen at session start (not stop).
