@@ -1,7 +1,35 @@
 import SwiftUI
+import CoreAudio
 
-@MainActor
 struct ContentView: View {
+    private enum ControlBarAction {
+        case toggle
+        case confirmDownload
+    }
+
+    private struct ViewState {
+        var isRunning = false
+        var lastEndedSession: SessionIndex?
+        var lastSessionHasNotes = false
+        var modelDisplayName = ""
+        var transcriptionPrompt = ""
+        var statusMessage: String?
+        var errorMessage: String?
+        var needsDownload = false
+        var kbIndexingProgress = ""
+        var suggestions: [Suggestion] = []
+        var isGeneratingSuggestions = false
+        var showLiveTranscript = true
+        var utterances: [Utterance] = []
+        var volatileYouText = ""
+        var volatileThemText = ""
+        var kbFolderPath = ""
+        var notesFolderPath = ""
+        var voyageApiKey = ""
+        var transcriptionModel: TranscriptionModel = .parakeetV2
+        var inputDeviceID: AudioDeviceID = 0
+    }
+
     @Bindable var settings: AppSettings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
@@ -18,6 +46,16 @@ struct ContentView: View {
     @State private var showOnboarding = false
     @State private var showConsentSheet = false
     @State private var audioLevel: Float = 0
+    @State private var viewState = ViewState()
+    @State private var pendingControlBarAction: ControlBarAction?
+    @State private var observedUtteranceCount = 0
+    @State private var observedIsRunning = false
+    @State private var observedPendingExternalCommandID: UUID?
+    @State private var observedKBFolderPath = ""
+    @State private var observedNotesFolderPath = ""
+    @State private var observedVoyageApiKey = ""
+    @State private var observedTranscriptionModel: TranscriptionModel = .parakeetV2
+    @State private var observedInputDeviceID: AudioDeviceID = 0
     @State private var isHoveringNotes = false
     @State private var isHoveringCopy = false
 
@@ -26,20 +64,56 @@ struct ContentView: View {
     }
 
     private var rootContent: some View {
-        VStack(spacing: 0) {
+        let viewState = viewState
+
+        return VStack(spacing: 0) {
             // Compact header
-            topBar
+            HStack {
+                Text("OpenOats")
+                    .font(.system(size: 13, weight: .semibold))
+
+                Spacer()
+
+                // KB indexing status (subtle, read-only)
+                if !viewState.kbIndexingProgress.isEmpty {
+                    Text(viewState.kbIndexingProgress)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Button {
+                    openWindow(id: "notes")
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 11))
+                        Text("Past Meetings")
+                            .font(.system(size: 11))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(isHoveringNotes ? Color.primary.opacity(0.06) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .onHover { hovering in isHoveringNotes = hovering }
+                .help("View past meeting notes")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
 
             Divider()
 
             // Post-session banner
-            if let lastSession = coordinator.lastEndedSession, lastSession.utteranceCount > 0 {
+            if let lastSession = viewState.lastEndedSession, lastSession.utteranceCount > 0 {
                 HStack {
                     Text("Session ended \u{00B7} \(lastSession.utteranceCount) utterances")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if lastSessionHasNotes {
+                    if viewState.lastSessionHasNotes {
                         Button {
                             openWindow(id: "notes")
                         } label: {
@@ -68,35 +142,41 @@ struct ContentView: View {
 
             // Main content: Suggestions
             VStack(alignment: .leading, spacing: 0) {
-                sectionHeader("SUGGESTIONS")
+                Text("SUGGESTIONS")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .tracking(1.5)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
                 SuggestionsView(
-                    suggestions: suggestionEngine?.suggestions ?? [],
-                    isGenerating: suggestionEngine?.isGenerating ?? false
+                    suggestions: viewState.suggestions,
+                    isGenerating: viewState.isGeneratingSuggestions
                 )
             }
 
             Divider()
 
             // Collapsible transcript (hidden when live transcript is disabled)
-            if settings.showLiveTranscript {
+            if viewState.showLiveTranscript {
                 DisclosureGroup(isExpanded: $isTranscriptExpanded) {
                     TranscriptView(
-                        utterances: transcriptStore.utterances,
-                        volatileYouText: transcriptStore.volatileYouText,
-                        volatileThemText: transcriptStore.volatileThemText
+                        utterances: viewState.utterances,
+                        volatileYouText: viewState.volatileYouText,
+                        volatileThemText: viewState.volatileThemText
                     )
                     .frame(height: 150)
                 } label: {
                     HStack(spacing: 6) {
                         Text("Transcript")
                             .font(.system(size: 12, weight: .medium))
-                        if !transcriptStore.utterances.isEmpty {
-                            Text("(\(transcriptStore.utterances.count))")
+                        if !viewState.utterances.isEmpty {
+                            Text("(\(viewState.utterances.count))")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        if isTranscriptExpanded && !transcriptStore.utterances.isEmpty {
+                        if isTranscriptExpanded && !viewState.utterances.isEmpty {
                             Button {
                                 copyTranscript()
                             } label: {
@@ -121,15 +201,19 @@ struct ContentView: View {
 
             // Bottom bar: live indicator + model
             ControlBar(
-                isRunning: isRunning,
+                isRunning: viewState.isRunning,
                 audioLevel: audioLevel,
-                modelDisplayName: settings.activeModelDisplay,
-                transcriptionPrompt: settings.transcriptionModel.downloadPrompt,
-                statusMessage: transcriptionEngine?.assetStatus,
-                errorMessage: transcriptionEngine?.lastError,
-                needsDownload: transcriptionEngine?.needsModelDownload ?? false,
-                onToggle: isRunning ? stopSession : startSession,
-                onConfirmDownload: confirmDownloadAndStart
+                modelDisplayName: viewState.modelDisplayName,
+                transcriptionPrompt: viewState.transcriptionPrompt,
+                statusMessage: viewState.statusMessage,
+                errorMessage: viewState.errorMessage,
+                needsDownload: viewState.needsDownload,
+                onToggle: {
+                    pendingControlBarAction = .toggle
+                },
+                onConfirmDownload: {
+                    pendingControlBarAction = .confirmDownload
+                }
             )
         }
     }
@@ -162,13 +246,13 @@ struct ContentView: View {
 
     private var contentWithLifecycle: some View {
         contentWithOverlay
-        .onChange(of: showOnboarding) {
-            if !showOnboarding {
+        .onChange(of: showOnboarding) { _, isShowing in
+            if !isShowing {
                 hasCompletedOnboarding = true
             }
         }
-        .onChange(of: showConsentSheet) {
-            if !showConsentSheet && settings.hasAcknowledgedRecordingConsent && !isRunning {
+        .onChange(of: showConsentSheet) { _, isShowing in
+            if !isShowing && settings.hasAcknowledgedRecordingConsent && !viewState.isRunning {
                 startSession()
             }
         }
@@ -199,135 +283,31 @@ struct ContentView: View {
                     outputDirectory: URL(fileURLWithPath: settings.notesFolderPath)
                 )
             }
+            refreshViewState()
             indexKBIfNeeded()
-            handlePendingExternalCommandIfPossible()
-        }
-        .onChange(of: coordinator.pendingExternalCommand?.id) {
             handlePendingExternalCommandIfPossible()
         }
     }
 
     private var contentWithEventHandlers: some View {
         contentWithLifecycle
-        .onChange(of: settings.kbFolderPath) {
-            if settings.kbFolderPath.isEmpty {
-                knowledgeBase?.clear()
-            } else {
-                indexKBIfNeeded()
-            }
-        }
-        .onChange(of: settings.notesFolderPath) {
-            let url = URL(fileURLWithPath: settings.notesFolderPath)
-            Task {
-                await transcriptLogger?.updateDirectory(url)
-            }
-            audioRecorder?.updateDirectory(url)
-        }
-        .onChange(of: settings.voyageApiKey) {
-            indexKBIfNeeded()
-        }
-        .onChange(of: settings.transcriptionModel) {
-            transcriptionEngine?.refreshModelAvailability()
-        }
-        .onChange(of: isRunning) {
-            coordinator.isRecording = isRunning
-        }
-        .onChange(of: settings.inputDeviceID) {
-            if isRunning {
-                Task {
-                    transcriptionEngine?.restartMic(inputDeviceID: settings.inputDeviceID)
-                }
-            }
-        }
-        .onChange(of: transcriptStore.utterances.count) {
-            handleNewUtterance()
-        }
         .onKeyPress(.escape) {
             overlayManager.hide()
             return .handled
         }
         .task {
+            refreshViewState()
+            synchronizeDerivedState()
+
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
-                guard let engine = transcriptionEngine else {
-                    if audioLevel != 0 { audioLevel = 0 }
-                    continue
-                }
-                if engine.isRunning {
-                    audioLevel = engine.audioLevel
-                } else if audioLevel != 0 {
-                    audioLevel = 0
-                }
+                refreshViewState()
+                synchronizeDerivedState()
             }
         }
-    }
-
-    // MARK: - Top Bar
-
-    private var topBar: some View {
-        HStack {
-            Text("OpenOats")
-                .font(.system(size: 13, weight: .semibold))
-
-            Spacer()
-
-            // KB indexing status (subtle, read-only)
-            if let kb = knowledgeBase, !kb.indexingProgress.isEmpty {
-                Text(kb.indexingProgress)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Button {
-                openWindow(id: "notes")
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "note.text")
-                        .font(.system(size: 11))
-                    Text("Past Meetings")
-                        .font(.system(size: 11))
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(isHoveringNotes ? Color.primary.opacity(0.06) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .onHover { hovering in isHoveringNotes = hovering }
-            .help("View past meeting notes")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
-    private var isRunning: Bool {
-        transcriptionEngine?.isRunning ?? false
-    }
-
-    /// Check if the last ended session already has notes generated.
-    private var lastSessionHasNotes: Bool {
-        guard let lastSession = coordinator.lastEndedSession else { return false }
-        return coordinator.sessionHistory.first { $0.id == lastSession.id }?.hasNotes ?? false
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundStyle(.tertiary)
-            .tracking(1.5)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
     }
 
     // MARK: - Actions
-
-    private func confirmDownloadAndStart() {
-        transcriptionEngine?.downloadConfirmed = true
-        startSession()
-    }
 
     private func startSession() {
         // Gate recording behind consent acknowledgment
@@ -370,9 +350,9 @@ struct ContentView: View {
 
     private func toggleOverlay() {
         let content = OverlayContent(
-            suggestions: suggestionEngine?.suggestions ?? [],
-            isGenerating: suggestionEngine?.isGenerating ?? false,
-            volatileThemText: transcriptStore.volatileThemText
+            suggestions: viewState.suggestions,
+            isGenerating: viewState.isGeneratingSuggestions,
+            volatileThemText: viewState.volatileThemText
         )
         overlayManager.toggle(content: content)
     }
@@ -388,7 +368,7 @@ struct ContentView: View {
     private func copyTranscript() {
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "HH:mm:ss"
-        let lines = transcriptStore.utterances.map { u in
+        let lines = viewState.utterances.map { u in
             "[\(timeFmt.string(from: u.timestamp))] \(u.speaker == .you ? "You" : "Them"): \(u.displayText)"
         }
         NSPasteboard.general.clearContents()
@@ -403,11 +383,11 @@ struct ContentView: View {
             guard transcriptionEngine != nil, suggestionEngine != nil, transcriptLogger != nil else {
                 return
             }
-            if !isRunning {
+            if !viewState.isRunning {
                 startSession()
             }
         case .stopSession:
-            if isRunning {
+            if viewState.isRunning {
                 stopSession()
             }
         case .openNotes(let sessionID):
@@ -418,10 +398,7 @@ struct ContentView: View {
         coordinator.completeExternalCommand(request.id)
     }
 
-    private func handleNewUtterance() {
-        let utterances = transcriptStore.utterances
-        guard let last = utterances.last else { return }
-
+    private func handleNewUtterance(_ last: Utterance) {
         // Persist to transcript log
         Task {
             await transcriptLogger?.append(
@@ -465,6 +442,137 @@ struct ContentView: View {
                     timestamp: last.timestamp
                 ))
             }
+        }
+    }
+
+    private func handleNewUtterances(startingAt startIndex: Int) {
+        let utterances = transcriptStore.utterances
+        guard startIndex < utterances.count else { return }
+
+        for utterance in utterances[startIndex...] {
+            handleNewUtterance(utterance)
+        }
+    }
+
+    @MainActor
+    private func refreshViewState() {
+        let lastEndedSession = coordinator.lastEndedSession
+        let lastSessionHasNotes = lastEndedSession.flatMap { lastSession in
+            coordinator.sessionHistory.first { $0.id == lastSession.id }?.hasNotes
+        } ?? false
+
+        let activeModelRaw = switch settings.llmProvider {
+        case .openRouter: settings.selectedModel
+        case .ollama: settings.ollamaLLMModel
+        }
+
+        var nextViewState = ViewState()
+        nextViewState.isRunning = transcriptionEngine?.isRunning ?? false
+        nextViewState.lastEndedSession = lastEndedSession
+        nextViewState.lastSessionHasNotes = lastSessionHasNotes
+        nextViewState.modelDisplayName = activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw
+        nextViewState.transcriptionPrompt = settings.transcriptionModel.downloadPrompt
+        nextViewState.statusMessage = transcriptionEngine?.assetStatus
+        nextViewState.errorMessage = transcriptionEngine?.lastError
+        nextViewState.needsDownload = transcriptionEngine?.needsModelDownload ?? false
+        nextViewState.kbIndexingProgress = knowledgeBase?.indexingProgress ?? ""
+        nextViewState.suggestions = suggestionEngine?.suggestions ?? []
+        nextViewState.isGeneratingSuggestions = suggestionEngine?.isGenerating ?? false
+        nextViewState.showLiveTranscript = settings.showLiveTranscript
+        nextViewState.utterances = transcriptStore.utterances
+        nextViewState.volatileYouText = transcriptStore.volatileYouText
+        nextViewState.volatileThemText = transcriptStore.volatileThemText
+        nextViewState.kbFolderPath = settings.kbFolderPath
+        nextViewState.notesFolderPath = settings.notesFolderPath
+        nextViewState.voyageApiKey = settings.voyageApiKey
+        nextViewState.transcriptionModel = settings.transcriptionModel
+        nextViewState.inputDeviceID = settings.inputDeviceID
+
+        viewState = nextViewState
+    }
+
+    @MainActor
+    private func synchronizeDerivedState() {
+        let currentViewState = viewState
+
+        if currentViewState.kbFolderPath != observedKBFolderPath {
+            observedKBFolderPath = currentViewState.kbFolderPath
+            if currentViewState.kbFolderPath.isEmpty {
+                knowledgeBase?.clear()
+            } else {
+                indexKBIfNeeded()
+            }
+        }
+
+        if currentViewState.notesFolderPath != observedNotesFolderPath {
+            observedNotesFolderPath = currentViewState.notesFolderPath
+            let url = URL(fileURLWithPath: currentViewState.notesFolderPath)
+            Task {
+                await transcriptLogger?.updateDirectory(url)
+            }
+            audioRecorder?.updateDirectory(url)
+        }
+
+        if currentViewState.voyageApiKey != observedVoyageApiKey {
+            observedVoyageApiKey = currentViewState.voyageApiKey
+            indexKBIfNeeded()
+        }
+
+        if currentViewState.transcriptionModel != observedTranscriptionModel {
+            observedTranscriptionModel = currentViewState.transcriptionModel
+            transcriptionEngine?.refreshModelAvailability()
+        }
+
+        if currentViewState.inputDeviceID != observedInputDeviceID {
+            observedInputDeviceID = currentViewState.inputDeviceID
+            if currentViewState.isRunning {
+                Task {
+                    transcriptionEngine?.restartMic(inputDeviceID: currentViewState.inputDeviceID)
+                }
+            }
+        }
+
+        let utteranceCount = currentViewState.utterances.count
+        if utteranceCount > observedUtteranceCount {
+            handleNewUtterances(startingAt: observedUtteranceCount)
+        }
+        observedUtteranceCount = utteranceCount
+
+        if currentViewState.isRunning != observedIsRunning {
+            observedIsRunning = currentViewState.isRunning
+            coordinator.isRecording = currentViewState.isRunning
+        }
+
+        let pendingExternalCommandID = coordinator.pendingExternalCommand?.id
+        if pendingExternalCommandID != observedPendingExternalCommandID {
+            observedPendingExternalCommandID = pendingExternalCommandID
+            handlePendingExternalCommandIfPossible()
+        }
+
+        if let action = pendingControlBarAction {
+            pendingControlBarAction = nil
+            handleControlBarAction(action)
+        }
+
+        if currentViewState.isRunning {
+            audioLevel = transcriptionEngine?.audioLevel ?? 0
+        } else if audioLevel != 0 {
+            audioLevel = 0
+        }
+    }
+
+    @MainActor
+    private func handleControlBarAction(_ action: ControlBarAction) {
+        switch action {
+        case .toggle:
+            if viewState.isRunning {
+                stopSession()
+            } else {
+                startSession()
+            }
+        case .confirmDownload:
+            transcriptionEngine?.downloadConfirmed = true
+            startSession()
         }
     }
 }

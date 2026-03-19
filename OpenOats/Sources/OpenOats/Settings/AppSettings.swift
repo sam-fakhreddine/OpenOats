@@ -326,8 +326,15 @@ final class AppSettings {
     }
 
     /// When true, a local .m4a audio file is saved alongside each transcript.
+    @ObservationIgnored nonisolated(unsafe) private var _saveAudioRecording: Bool
     var saveAudioRecording: Bool {
-        didSet { UserDefaults.standard.set(saveAudioRecording, forKey: "saveAudioRecording") }
+        get { access(keyPath: \.saveAudioRecording); return _saveAudioRecording }
+        set {
+            withMutation(keyPath: \.saveAudioRecording) {
+                _saveAudioRecording = newValue
+                UserDefaults.standard.set(newValue, forKey: "saveAudioRecording")
+            }
+        }
     }
 
     /// When true, uses the LLM to clean up filler words and fix punctuation in real-time.
@@ -386,7 +393,7 @@ final class AppSettings {
         self._openAIEmbedApiKey = KeychainHelper.load(key: "openAIEmbedApiKey") ?? ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
-        self.saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
+        self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
         self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
 
         // Default to true (shown) if key has never been set

@@ -11,6 +11,8 @@ struct SettingsView: View {
     var updater: SPUUpdater
     @Environment(AppCoordinator.self) private var coordinator
     @State private var inputDevices: [(id: AudioDeviceID, name: String)] = []
+    @State private var automaticallyChecksForUpdates = false
+    @State private var templates: [MeetingTemplate] = []
     @State private var isAddingTemplate = false
     @State private var newTemplateName = ""
     @State private var newTemplateIcon = "doc.text"
@@ -215,15 +217,15 @@ struct SettingsView: View {
             }
 
             Section("Updates") {
-                Toggle("Automatically check for updates", isOn: Binding(
-                    get: { updater.automaticallyChecksForUpdates },
-                    set: { updater.automaticallyChecksForUpdates = $0 }
-                ))
+                Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
                 .font(.system(size: 12))
+                .onChange(of: automaticallyChecksForUpdates) { _, newValue in
+                    syncAutomaticUpdateChecks(to: newValue)
+                }
             }
 
             Section("Meeting Templates") {
-                ForEach(coordinator.templateStore.templates) { template in
+                ForEach(templates) { template in
                     HStack {
                         Image(systemName: template.icon)
                             .frame(width: 20)
@@ -236,14 +238,14 @@ struct SettingsView: View {
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
                             Button("Reset") {
-                                coordinator.templateStore.resetBuiltIn(id: template.id)
+                                resetTemplate(id: template.id)
                             }
                             .font(.system(size: 11))
                             .buttonStyle(.plain)
                             .foregroundStyle(.blue)
                         } else {
                             Button {
-                                coordinator.templateStore.delete(id: template.id)
+                                deleteTemplate(id: template.id)
                             } label: {
                                 Image(systemName: "trash")
                                     .font(.system(size: 11))
@@ -318,7 +320,7 @@ struct SettingsView: View {
                                     systemPrompt: trimmedTemplatePrompt,
                                     isBuiltIn: false
                                 )
-                                coordinator.templateStore.add(template)
+                                addTemplate(template)
                                 resetNewTemplateForm()
                             }
                             .buttonStyle(.borderedProminent)
@@ -340,7 +342,42 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 450, height: 700)
         .onAppear {
-            inputDevices = MicCapture.availableInputDevices()
+            refreshViewState()
+        }
+    }
+
+    private func refreshViewState() {
+        inputDevices = MicCapture.availableInputDevices()
+        Task { @MainActor in
+            automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
+            templates = coordinator.templateStore.templates
+        }
+    }
+
+    private func syncAutomaticUpdateChecks(to newValue: Bool) {
+        Task { @MainActor in
+            updater.automaticallyChecksForUpdates = newValue
+        }
+    }
+
+    private func addTemplate(_ template: MeetingTemplate) {
+        Task { @MainActor in
+            coordinator.templateStore.add(template)
+            templates = coordinator.templateStore.templates
+        }
+    }
+
+    private func resetTemplate(id: UUID) {
+        Task { @MainActor in
+            coordinator.templateStore.resetBuiltIn(id: id)
+            templates = coordinator.templateStore.templates
+        }
+    }
+
+    private func deleteTemplate(id: UUID) {
+        Task { @MainActor in
+            coordinator.templateStore.delete(id: id)
+            templates = coordinator.templateStore.templates
         }
     }
 
