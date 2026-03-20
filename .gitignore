@@ -9,6 +9,7 @@ OpenOats/.build/
 data/
 CLAUDE.md
 AGENTS.md
+REPO_POLICY.md
 
 # Local OS/editor artifacts
 .DS_Store
