@@ -244,6 +244,7 @@ final class TemplateStore {
         do {
             let data = try JSONEncoder().encode(stored)
             try data.write(to: storageURL, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storageURL.path)
         } catch {
             print("TemplateStore: failed to save: \(error)")
         }

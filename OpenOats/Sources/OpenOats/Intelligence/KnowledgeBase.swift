@@ -522,7 +522,9 @@ final class KnowledgeBase {
 
     private nonisolated func saveCache(_ cache: KBCache) {
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        try? data.write(to: Self.cacheURL(), options: .atomic)
+        let url = Self.cacheURL()
+        try? data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     // MARK: - Hashing

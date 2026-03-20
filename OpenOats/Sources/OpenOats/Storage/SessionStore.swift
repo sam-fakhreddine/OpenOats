@@ -19,8 +19,17 @@ actor SessionStore {
         sessionsDirectory = appSupport.appendingPathComponent("OpenOats/sessions", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+        Self.dropMetadataNeverIndex(in: sessionsDirectory)
 
         encoder.dateEncodingStrategy = .iso8601
+    }
+
+    /// Place a .metadata_never_index sentinel so Spotlight skips this directory.
+    private static func dropMetadataNeverIndex(in directory: URL) {
+        let sentinel = directory.appendingPathComponent(".metadata_never_index")
+        if !FileManager.default.fileExists(atPath: sentinel.path) {
+            FileManager.default.createFile(atPath: sentinel.path, contents: nil)
+        }
     }
 
     func startSession(templateID: UUID? = nil) {
@@ -31,7 +40,8 @@ actor SessionStore {
         let filename = "\(stem).jsonl"
         currentFile = sessionsDirectory.appendingPathComponent(filename)
 
-        FileManager.default.createFile(atPath: currentFile!.path, contents: nil)
+        FileManager.default.createFile(atPath: currentFile!.path, contents: nil,
+                                       attributes: [.posixPermissions: 0o600])
         fileHandle = try? FileHandle(forWritingTo: currentFile!)
     }
 
@@ -137,6 +147,7 @@ actor SessionStore {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(sidecar)
             try data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
             print("SessionStore: failed to write sidecar: \(error)")
         }

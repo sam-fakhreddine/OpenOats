@@ -496,6 +496,17 @@ final class AppSettings {
             atPath: notesFolderPath,
             withIntermediateDirectories: true
         )
+
+        // Prevent Spotlight from indexing transcript contents
+        Self.dropMetadataNeverIndex(atPath: notesFolderPath)
+    }
+
+    /// Place a .metadata_never_index sentinel so Spotlight skips the directory.
+    private static func dropMetadataNeverIndex(atPath directoryPath: String) {
+        let sentinel = URL(fileURLWithPath: directoryPath).appendingPathComponent(".metadata_never_index")
+        if !FileManager.default.fileExists(atPath: sentinel.path) {
+            FileManager.default.createFile(atPath: sentinel.path, contents: nil)
+        }
     }
 
     /// Migrate settings from the old "On The Spot" (com.onthespot.app) bundle.
