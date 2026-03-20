@@ -249,18 +249,6 @@ The `package-smoke` workflow must exist and remain non-destructive. It validates
 - `release:none` does not trigger a release
 - `release:major` always requires maintainer approval
 
-## Polling Loop
-
-Run roughly every 30 minutes:
-
-1. List open issues and PRs without normalized labels
-2. Normalize labels and apply the workflow above
-3. Comment only when the state changes or new information is required
-4. For `state:planned` items, implement according to the autonomy rules
-5. For `state:ready-to-merge` PRs, merge if merge gates pass
-6. For merged PRs awaiting shipment, cut a release if release gates pass
-7. Never revisit closed items unless they are reopened or a new linked item appears
-
 ## Repo-Specific High-Risk Rules
 
 For OpenOats, treat the following as `risk:high` by default:
