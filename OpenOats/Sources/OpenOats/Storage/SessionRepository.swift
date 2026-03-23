@@ -717,15 +717,7 @@ actor SessionRepository {
         return try? decoder.decode(BatchMeta.self, from: data)
     }
 
-    func hasBatchTranscript(sessionID: String) -> Bool {
-        // Check for canonical final transcript
-        let finalURL = sessionDirectory(for: sessionID).appendingPathComponent("transcript.final.jsonl")
-        if FileManager.default.fileExists(atPath: finalURL.path) { return true }
 
-        // Check for legacy batch.jsonl
-        let legacyURL = sessionDirectory(for: sessionID).appendingPathComponent("batch.jsonl")
-        return FileManager.default.fileExists(atPath: legacyURL.path)
-    }
 
     // MARK: - Refined Text Backfill
 
