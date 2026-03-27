@@ -261,8 +261,12 @@ actor SessionRepository {
 
             guard let self else { return }
 
-            let decision = await suggestionEngine?.lastDecision
-            let latestSuggestion = await suggestionEngine?.suggestions.first
+            let snapshot: SuggestionEngine.LogSnapshot?
+            if let utteranceID {
+                snapshot = await suggestionEngine?.logSnapshot(forTriggerUtteranceID: utteranceID)
+            } else {
+                snapshot = nil
+            }
             let summary = await transcriptStore?.conversationState.shortSummary
 
             let refinedText: String?
@@ -276,12 +280,15 @@ actor SessionRepository {
                 speaker: baseRecord.speaker,
                 text: baseRecord.text,
                 timestamp: baseRecord.timestamp,
-                suggestions: latestSuggestion.map { [$0.text] },
-                kbHits: latestSuggestion?.kbHits.map { $0.sourceFile },
-                suggestionDecision: decision,
-                surfacedSuggestionText: decision?.shouldSurface == true ? latestSuggestion?.text : nil,
+                suggestions: snapshot.map { [$0.surfacedText] },
+                kbHits: snapshot?.kbHitPaths,
+                suggestionDecision: nil,
+                surfacedSuggestionText: snapshot?.surfacedText,
                 conversationStateSummary: summary?.isEmpty == false ? summary : nil,
-                refinedText: refinedText
+                refinedText: refinedText,
+                suggestionID: snapshot?.suggestionID,
+                triggerUtteranceID: snapshot?.triggerUtteranceID,
+                suggestionLifecycle: snapshot?.lifecycle
             )
 
             await self.appendRecord(enrichedRecord)
