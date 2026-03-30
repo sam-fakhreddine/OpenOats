@@ -30,8 +30,9 @@ final class SettingsStore {
         get { access(keyPath: \.openRouterApiKey); return _openRouterApiKey }
         set {
             withMutation(keyPath: \.openRouterApiKey) {
-                _openRouterApiKey = newValue
-                secretStore.save(key: "openRouterApiKey", value: newValue)
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _openRouterApiKey = trimmed
+                secretStore.save(key: "openRouterApiKey", value: trimmed)
             }
         }
     }
@@ -107,8 +108,9 @@ final class SettingsStore {
         get { access(keyPath: \.openAILLMApiKey); return _openAILLMApiKey }
         set {
             withMutation(keyPath: \.openAILLMApiKey) {
-                _openAILLMApiKey = newValue
-                secretStore.save(key: "openAILLMApiKey", value: newValue)
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _openAILLMApiKey = trimmed
+                secretStore.save(key: "openAILLMApiKey", value: trimmed)
             }
         }
     }
@@ -140,8 +142,9 @@ final class SettingsStore {
         get { access(keyPath: \.openAIEmbedApiKey); return _openAIEmbedApiKey }
         set {
             withMutation(keyPath: \.openAIEmbedApiKey) {
-                _openAIEmbedApiKey = newValue
-                secretStore.save(key: "openAIEmbedApiKey", value: newValue)
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _openAIEmbedApiKey = trimmed
+                secretStore.save(key: "openAIEmbedApiKey", value: trimmed)
             }
         }
     }
@@ -184,8 +187,9 @@ final class SettingsStore {
         get { access(keyPath: \.voyageApiKey); return _voyageApiKey }
         set {
             withMutation(keyPath: \.voyageApiKey) {
-                _voyageApiKey = newValue
-                secretStore.save(key: "voyageApiKey", value: newValue)
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _voyageApiKey = trimmed
+                secretStore.save(key: "voyageApiKey", value: trimmed)
             }
         }
     }
