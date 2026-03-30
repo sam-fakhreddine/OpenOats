@@ -284,16 +284,17 @@ final class TranscriptionEngine {
         Log.transcription.info("Loading transcription model \(transcriptionModel.rawValue, privacy: .public)")
         do {
             let vocab = settings.transcriptionCustomVocabulary
-            let mic = transcriptionModel.makeBackend(customVocabulary: vocab)
+            let apiKey = settings.cloudASRApiKey
+            let mic = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey)
             try await prepareBackend(mic)
             self.micBackend = mic
 
             // Parakeet needs a separate backend for system audio (mutable decoder state).
             // Qwen3 is actor-based and thread-safe, so reuse the same instance.
-            if transcriptionModel == .qwen3ASR06B {
+            if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
                 self.systemBackend = mic
             } else {
-                let sys = transcriptionModel.makeBackend(customVocabulary: vocab)
+                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey)
                 try await sys.prepare { _ in }
                 self.systemBackend = sys
             }
@@ -328,11 +329,15 @@ final class TranscriptionEngine {
             assetStatus = "Ready"
             isRunning = false
             clearDownloadTracking()
-            activeTranscriptionSession?.clearModelCache()
-            Log.transcription.info(
-                "Cleared model cache for \(transcriptionModel.rawValue, privacy: .public)"
-            )
-            needsModelDownload = true
+            // Clear corrupt cache so the next attempt triggers a fresh download.
+            // Cloud models don't have local caches or download flows.
+            if !transcriptionModel.isCloud {
+                activeTranscriptionSession?.clearModelCache()
+                Log.transcription.info(
+                    "Cleared model cache for \(transcriptionModel.rawValue, privacy: .public)"
+                )
+                needsModelDownload = true
+            }
             downloadConfirmed = false
             activeTranscriptionSession = nil
             return
@@ -900,6 +905,7 @@ final class TranscriptionEngine {
     }
 
     private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
+        guard !model.isCloud else { return false }
         let backend = model.makeBackend()
         if case .needsDownload = backend.checkStatus() {
             return true
