@@ -8,6 +8,8 @@ import Foundation
 protocol AudioSignalSource: Sendable {
     /// Emits `true` when any physical input device becomes active, `false` when all go silent.
     var signals: AsyncStream<Bool> { get }
+    /// Returns `true` when any monitored device is currently running.
+    var isActive: Bool { get }
 }
 
 // MARK: - CoreAudio HAL Signal Source
@@ -21,6 +23,12 @@ final class CoreAudioSignalSource: AudioSignalSource, @unchecked Sendable {
     private var lastEmittedValue: Bool = false
 
     let signals: AsyncStream<Bool>
+
+    var isActive: Bool {
+        listenerQueue.sync {
+            deviceIDs.contains { Self.isDeviceRunning($0) }
+        }
+    }
 
     init() {
         var stream: AsyncStream<Bool>!

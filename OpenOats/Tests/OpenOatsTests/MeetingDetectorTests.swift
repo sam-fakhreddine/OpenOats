@@ -7,6 +7,14 @@ import XCTest
 final class MockAudioSignalSource: AudioSignalSource, @unchecked Sendable {
     let signals: AsyncStream<Bool>
     private let continuation: AsyncStream<Bool>.Continuation
+    private let lock = NSLock()
+    private var _isActive = false
+
+    var isActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isActive
+    }
 
     init() {
         var captured: AsyncStream<Bool>.Continuation!
@@ -17,6 +25,9 @@ final class MockAudioSignalSource: AudioSignalSource, @unchecked Sendable {
     }
 
     func emit(_ value: Bool) {
+        lock.lock()
+        _isActive = value
+        lock.unlock()
         continuation.yield(value)
     }
 
