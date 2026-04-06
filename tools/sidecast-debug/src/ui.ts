@@ -146,6 +146,42 @@ export function renderSettingsPanel(
 
   container.appendChild(divider());
 
+  // ── Personas ──
+  const personaHeader = el("div", "cfg-persona-header");
+  const personaHeading = el("div", "cfg-group-heading");
+  personaHeading.textContent = "Personas";
+  personaHeader.appendChild(personaHeading);
+
+  const personaBtns = el("div", "cfg-persona-btns");
+  const addBtn = el("button", "cfg-btn-sm");
+  addBtn.textContent = "+";
+  addBtn.title = "Add persona";
+  addBtn.addEventListener("click", () => {
+    const updated = addPersona(settings);
+    Object.assign(settings, updated);
+    saveSettings(settings);
+    onChange(settings);
+  });
+  const resetBtn = el("button", "cfg-btn-sm");
+  resetBtn.textContent = "Reset";
+  resetBtn.title = "Reset to starter pack";
+  resetBtn.addEventListener("click", () => {
+    const updated = resetPersonas(settings);
+    Object.assign(settings, updated);
+    saveSettings(settings);
+    onChange(settings);
+  });
+  personaBtns.appendChild(addBtn);
+  personaBtns.appendChild(resetBtn);
+  personaHeader.appendChild(personaBtns);
+  container.appendChild(personaHeader);
+
+  settings.personas.forEach((persona) => {
+    container.appendChild(renderPersonaCard(persona, settings, onChange));
+  });
+
+  container.appendChild(divider());
+
   // ── Tuning (collapsible) ──
   const tuningDetails = document.createElement("details");
   tuningDetails.className = "cfg-prompt-details";
@@ -218,43 +254,6 @@ export function renderSettingsPanel(
   }
 
   container.appendChild(tuningDetails);
-  container.appendChild(divider());
-
-  // ── Personas ──
-  const personaHeader = el("div", "cfg-persona-header");
-  const personaHeading = el("div", "cfg-group-heading");
-  personaHeading.textContent = "Personas";
-  personaHeader.appendChild(personaHeading);
-
-  const personaBtns = el("div", "cfg-persona-btns");
-  const addBtn = el("button", "cfg-btn-sm");
-  addBtn.textContent = "+";
-  addBtn.title = "Add persona";
-  addBtn.addEventListener("click", () => {
-    const updated = addPersona(settings);
-    Object.assign(settings, updated);
-    saveSettings(settings);
-    onChange(settings);
-  });
-  const resetBtn = el("button", "cfg-btn-sm");
-  resetBtn.textContent = "Reset";
-  resetBtn.title = "Reset to starter pack";
-  resetBtn.addEventListener("click", () => {
-    const updated = resetPersonas(settings);
-    Object.assign(settings, updated);
-    saveSettings(settings);
-    onChange(settings);
-  });
-  personaBtns.appendChild(addBtn);
-  personaBtns.appendChild(resetBtn);
-  personaHeader.appendChild(personaBtns);
-  container.appendChild(personaHeader);
-
-  settings.personas.forEach((persona) => {
-    container.appendChild(renderPersonaCard(persona, settings, onChange));
-  });
-
-  container.appendChild(divider());
 
   // ── System Prompt (collapsible, usually don't need to see it) ──
   const promptDetails = document.createElement("details");

@@ -86,10 +86,10 @@
 
       .cfg-btn-export {
         width: 100%; padding: 8px; margin-top: 4px;
-        background: var(--accent); border: none; border-radius: 5px;
-        color: #fff; cursor: pointer; font-size: 11px; font-family: inherit; font-weight: 500;
+        background: transparent; border: 1px solid var(--border); border-radius: 5px;
+        color: var(--text-muted); cursor: pointer; font-size: 11px; font-family: inherit; font-weight: 500;
       }
-      .cfg-btn-export:hover { opacity: 0.85; }
+      .cfg-btn-export:hover { border-color: var(--accent); color: var(--text); }
 
       /* --- Persona Cards --- */
       .persona-card {
@@ -246,7 +246,7 @@
       </div>
       <div id="sidecast-panel" class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <h2>Sidecast Output</h2>
+          <h2 style="margin-bottom:0;">Sidecast Output</h2>
           <div style="display:flex;gap:4px;">
             <button id="generate-btn" class="secondary">Generate Now</button>
             <button id="clear-btn" class="secondary">Clear</button>
