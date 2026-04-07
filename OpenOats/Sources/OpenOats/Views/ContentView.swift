@@ -197,12 +197,8 @@ struct ContentView: View {
             // Collapsible transcript (hidden when live transcript is disabled)
             if controllerState.showLiveTranscript {
                 DisclosureGroup(isExpanded: $isTranscriptExpanded) {
-                    TranscriptView(
-                        utterances: controllerState.liveTranscript,
-                        volatileYouText: controllerState.volatileYouText,
-                        volatileThemText: controllerState.volatileThemText
-                    )
-                    .frame(height: 150)
+                    IsolatedTranscriptWrapper(state: controllerState)
+                        .frame(height: 150)
                 } label: {
                     HStack(spacing: 6) {
                         Text("Transcript")
@@ -258,17 +254,8 @@ struct ContentView: View {
             Divider()
 
             // Bottom bar: live indicator + model
-            ControlBar(
-                isRunning: controllerState.isRunning,
-                audioLevel: controllerState.audioLevel,
-                isMicMuted: controllerState.isMicMuted,
-                modelDisplayName: controllerState.modelDisplayName,
-                transcriptionPrompt: controllerState.transcriptionPrompt,
-                statusMessage: controllerState.statusMessage,
-                errorMessage: controllerState.errorMessage,
-                needsDownload: controllerState.needsDownload,
-                downloadProgress: controllerState.downloadProgress,
-                downloadDetail: controllerState.downloadDetail,
+            IsolatedControlBarWrapper(
+                state: controllerState,
                 onToggle: {
                     pendingControlBarAction = .toggle
                 },
@@ -559,5 +546,44 @@ private struct ScratchpadSection: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Isolated View Wrappers
+
+private struct IsolatedTranscriptWrapper: View {
+    let state: LiveSessionState
+    
+    var body: some View {
+        TranscriptView(
+            utterances: state.liveTranscript,
+            volatileYouText: state.volatileYouText,
+            volatileThemText: state.volatileThemText
+        )
+    }
+}
+
+private struct IsolatedControlBarWrapper: View {
+    let state: LiveSessionState
+    let onToggle: () -> Void
+    let onMuteToggle: () -> Void
+    let onConfirmDownload: () -> Void
+    
+    var body: some View {
+        ControlBar(
+            isRunning: state.isRunning,
+            audioLevel: state.audioLevel,
+            isMicMuted: state.isMicMuted,
+            modelDisplayName: state.modelDisplayName,
+            transcriptionPrompt: state.transcriptionPrompt,
+            statusMessage: state.statusMessage,
+            errorMessage: state.errorMessage,
+            needsDownload: state.needsDownload,
+            downloadProgress: state.downloadProgress,
+            downloadDetail: state.downloadDetail,
+            onToggle: onToggle,
+            onMuteToggle: onMuteToggle,
+            onConfirmDownload: onConfirmDownload
+        )
     }
 }

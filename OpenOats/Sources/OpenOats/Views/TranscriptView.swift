@@ -79,7 +79,8 @@ struct TranscriptView: View {
                         .frame(maxWidth: .infinity, minHeight: 60)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(visible.enumerated()), id: \.element.id) { index, utterance in
+                        ForEach(0..<visible.count, id: \.self) { index in
+                            let utterance = visible[index]
                             UtteranceBubble(
                                 utterance: utterance,
                                 showTimestamp: shouldShowTimestamp(at: index, in: visible)

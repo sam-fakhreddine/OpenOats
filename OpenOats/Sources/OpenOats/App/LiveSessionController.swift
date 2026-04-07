@@ -4,7 +4,10 @@ import CoreAudio
 import AppKit
 
 /// Published state for the live session, projected by ContentView.
-struct LiveSessionState {
+/// Declared as @Observable class so SwiftUI tracks each property individually,
+/// preventing a full view-tree re-render whenever any single field changes.
+@Observable
+final class LiveSessionState {
     var isRunning: Bool = false
     var sessionPhase: MeetingState = .idle
     var audioLevel: Float = 0
@@ -75,13 +78,17 @@ final class LiveSessionController {
 
     // MARK: - Polling Loop
 
-    /// Call from a `.task` modifier to start the 250ms polling loop.
+    /// Call from a `.task` modifier to start the polling loop.
+    /// Polls at 250ms while recording for responsive UI, and at 2s while idle
+    /// to minimize observation churn and SwiftUI re-render cycles.
     func runPollingLoop(settings: AppSettings) async {
         refreshState(settings: settings)
         synchronizeDerivedState(settings: settings)
 
         while !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(250))
+            let isActive = coordinator.transcriptionEngine?.isRunning == true
+                || coordinator.batchStatus != .idle
+            try? await Task.sleep(for: isActive ? .milliseconds(250) : .seconds(2))
 
             // Poll batch engine status (actor-isolated)
             if let engine = coordinator.batchAudioTranscriber {
@@ -493,6 +500,13 @@ final class LiveSessionController {
 
     // MARK: - State Refresh
 
+    /// Assigns `value` to `state[keyPath:]` only when it differs, avoiding spurious
+    /// @Observable withMutation notifications that would trigger unnecessary layout passes.
+    @inline(__always)
+    private func set<T: Equatable>(_ kp: ReferenceWritableKeyPath<LiveSessionState, T>, _ value: T) {
+        if state[keyPath: kp] != value { state[keyPath: kp] = value }
+    }
+
     @MainActor
     private func refreshState(settings: AppSettings) {
         let lastEndedSession = coordinator.lastEndedSession
@@ -507,7 +521,6 @@ final class LiveSessionController {
         case .openAICompatible: settings.openAILLMModel
         }
 
-        var next = LiveSessionState()
         let sidebarSuggestions: [Suggestion]
         let sidebarGenerating: Bool
         switch settings.sidebarMode {
@@ -518,31 +531,45 @@ final class LiveSessionController {
             sidebarSuggestions = coordinator.sidecastEngine?.suggestions ?? []
             sidebarGenerating = coordinator.sidecastEngine?.isGenerating ?? false
         }
-        next.isRunning = coordinator.transcriptionEngine?.isRunning ?? false
-        next.sessionPhase = coordinator.state
-        next.audioLevel = next.isRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0
-        next.liveTranscript = coordinator.transcriptStore.utterances
-        next.volatileYouText = coordinator.transcriptStore.volatileYouText
-        next.volatileThemText = coordinator.transcriptStore.volatileThemText
-        next.suggestions = sidebarSuggestions
-        next.isGeneratingSuggestions = sidebarGenerating
-        next.batchStatus = coordinator.batchStatus
-        next.batchIsImporting = coordinator.batchIsImporting
-        next.lastEndedSession = lastEndedSession
-        next.lastSessionHasNotes = lastSessionHasNotes
-        next.kbIndexingProgress = coordinator.knowledgeBase?.indexingProgress ?? ""
-        next.statusMessage = coordinator.transcriptionEngine?.assetStatus
-        next.errorMessage = coordinator.transcriptionEngine?.lastError
-        next.needsDownload = coordinator.transcriptionEngine?.needsModelDownload ?? false
-        next.downloadProgress = coordinator.transcriptionEngine?.downloadProgress
-        next.downloadDetail = coordinator.transcriptionEngine?.downloadDetail
-        next.transcriptionPrompt = settings.transcriptionModel.downloadPrompt
-        next.modelDisplayName = activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw
-        next.showLiveTranscript = settings.showLiveTranscript
-        next.isMicMuted = coordinator.transcriptionEngine?.isMicMuted ?? false
-        next.scratchpadText = state.scratchpadText
 
-        state = next
+        let isRunning = coordinator.transcriptionEngine?.isRunning ?? false
+
+        // Use set(_:_:) for all Equatable fields: only fires @Observable withMutation
+        // when the value actually changed, preventing spurious layout passes on NSHostingView.
+        set(\.isRunning, isRunning)
+        set(\.sessionPhase, coordinator.state)
+        set(\.audioLevel, isRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0)
+        set(\.volatileYouText, coordinator.transcriptStore.volatileYouText)
+        set(\.volatileThemText, coordinator.transcriptStore.volatileThemText)
+        set(\.isGeneratingSuggestions, sidebarGenerating)
+        set(\.batchStatus, coordinator.batchStatus)
+        set(\.batchIsImporting, coordinator.batchIsImporting)
+        if state.lastEndedSession?.id != lastEndedSession?.id { state.lastEndedSession = lastEndedSession }
+        set(\.lastSessionHasNotes, lastSessionHasNotes)
+        set(\.kbIndexingProgress, coordinator.knowledgeBase?.indexingProgress ?? "")
+        set(\.statusMessage, coordinator.transcriptionEngine?.assetStatus)
+        set(\.errorMessage, coordinator.transcriptionEngine?.lastError)
+        set(\.needsDownload, coordinator.transcriptionEngine?.needsModelDownload ?? false)
+        set(\.downloadProgress, coordinator.transcriptionEngine?.downloadProgress)
+        set(\.transcriptionPrompt, settings.transcriptionModel.downloadPrompt)
+        set(\.modelDisplayName, activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw)
+        set(\.showLiveTranscript, settings.showLiveTranscript)
+        set(\.isMicMuted, coordinator.transcriptionEngine?.isMicMuted ?? false)
+        // scratchpadText is managed by updateScratchpad(), not refreshed from coordinator
+        // downloadDetail is not Equatable; only update when nil-ness changes or download active
+        let nextDetail = coordinator.transcriptionEngine?.downloadDetail
+        if nextDetail != nil || state.downloadDetail != nil {
+            state.downloadDetail = nextDetail
+        }
+
+        // Arrays: compare by ID before assigning — array assignment always fires observation.
+        let nextTranscript = coordinator.transcriptStore.utterances
+        if state.liveTranscript != nextTranscript {
+            state.liveTranscript = nextTranscript
+        }
+        if state.suggestions != sidebarSuggestions {
+            state.suggestions = sidebarSuggestions
+        }
     }
 
     // MARK: - Derived State Synchronization
@@ -610,7 +637,7 @@ final class LiveSessionController {
         // Refresh minibar content only when visible state changed
         if currentState.isRunning {
             let levelChanged = abs(currentState.audioLevel - observedAudioLevel) > 0.01
-            let suggestionsChanged = currentState.suggestions.map(\.id) != observedSuggestions.map(\.id)
+            let suggestionsChanged = currentState.suggestions != observedSuggestions
             let generatingChanged = currentState.isGeneratingSuggestions != observedIsGenerating
 
             if levelChanged || suggestionsChanged || generatingChanged {

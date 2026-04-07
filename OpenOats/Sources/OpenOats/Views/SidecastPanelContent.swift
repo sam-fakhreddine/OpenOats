@@ -13,23 +13,9 @@ struct SidecastPanelContent: View {
 
             Divider().opacity(0.3)
 
-            // Persona cards
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(settings.enabledSidecastPersonas) { persona in
-                            SidecastPersonaCard(
-                                persona: persona,
-                                message: engine?.message(for: persona.id),
-                                now: timeline.date,
-                                lifetime: settings.sidecastIntensity.bubbleLifetimeSeconds
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-            }
+            // Persona cards — use a task-driven timer instead of TimelineView so
+            // we don't keep a CADisplayLink running at 60 Hz when the panel is hidden.
+            PersonaCardList(settings: settings, engine: engine)
 
             Spacer(minLength: 0)
 
@@ -43,6 +29,37 @@ struct SidecastPanelContent: View {
             Color(red: 0.08, green: 0.08, blue: 0.12)
                 .opacity(0.92)
         )
+    }
+}
+
+// MARK: - Persona Card List (1-second task timer, no display link)
+
+private struct PersonaCardList: View {
+    @Bindable var settings: AppSettings
+    let engine: SidecastEngine?
+    @State private var now: Date = .now
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                ForEach(settings.enabledSidecastPersonas) { persona in
+                    SidecastPersonaCard(
+                        persona: persona,
+                        message: engine?.message(for: persona.id),
+                        now: now,
+                        lifetime: settings.sidecastIntensity.bubbleLifetimeSeconds
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                now = .now
+            }
+        }
     }
 }
 
