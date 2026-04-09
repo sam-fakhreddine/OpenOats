@@ -172,6 +172,47 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testSaveNotesMirrorsToNotesFolderPath() async {
+        let exportDir = rootDir.appendingPathComponent("exported_notes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
+        
+        await repo.setNotesFolderPath(exportDir)
+        
+        let sessionID = "test_mirror_session"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: Date())],
+            startedAt: Date(),
+            title: "Mirror Meeting"
+        )
+
+        let template = TemplateSnapshot(
+            id: UUID(), name: "Mirror", icon: "star", systemPrompt: "Be helpful"
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: Date(),
+            markdown: "# Mirror Notes\n\nContent here."
+        )
+
+        await repo.saveNotes(sessionID: sessionID, notes: notes)
+        
+        // Poll for detached task to complete (up to 2 seconds)
+        var didMirror = false
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(100))
+            let contents = try? FileManager.default.contentsOfDirectory(at: exportDir, includingPropertiesForKeys: nil)
+            if contents?.contains(where: { $0.lastPathComponent.contains("mirror-meeting") && $0.pathExtension == "md" }) ?? false {
+                didMirror = true
+                break
+            }
+        }
+        
+        XCTAssertTrue(didMirror, "Background mirror task did not complete in time")
+        
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     // MARK: - listSessions returns all sessions
 
     func testListSessionsReturnsAllSessions() async {
