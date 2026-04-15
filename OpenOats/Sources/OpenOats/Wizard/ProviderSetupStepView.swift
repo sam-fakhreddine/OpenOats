@@ -114,7 +114,7 @@ struct ProviderSetupStepView: View {
 
             if viewModel.intent == .fullCopilot {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Voyage AI key")
+                    Text("Voyage AI key (optional)")
                         .font(.system(size: 12, weight: .medium))
 
                     HStack(spacing: 8) {
