@@ -93,7 +93,7 @@ struct ContentView: View {
                             Label("Generate Notes", systemImage: "sparkles")
                                 .font(.system(size: 12))
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(OpenOatsProminentButtonStyle())
                         .controlSize(.small)
                         .accessibilityIdentifier("app.generateNotesButton")
                     }

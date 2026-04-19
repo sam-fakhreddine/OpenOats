@@ -133,8 +133,7 @@ struct MenuBarPopoverView: View {
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(OpenOatsProminentButtonStyle(color: .red))
             .controlSize(.regular)
         } else {
             Button(action: {
@@ -148,7 +147,7 @@ struct MenuBarPopoverView: View {
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(OpenOatsProminentButtonStyle())
             .controlSize(.regular)
         }
     }

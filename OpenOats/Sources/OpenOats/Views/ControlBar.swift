@@ -38,7 +38,7 @@ struct ControlBar: View {
                     Button("Download Now") {
                         onConfirmDownload()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(OpenOatsProminentButtonStyle())
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
