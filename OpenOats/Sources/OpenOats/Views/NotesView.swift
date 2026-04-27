@@ -1399,66 +1399,13 @@ struct NotesView: View {
         folders: [NotesFolderDefinition]
     ) -> some View {
         Menu {
-            Button {
-                requestMeetingFamilyFolderChange(
-                    controller: controller,
-                    selection: selection,
-                    folderPath: nil,
-                    historyCount: historyCount
-                )
-            } label: {
-                HStack {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.secondary)
-                    Text("My notes")
-                    if preferredFolderPath == nil {
-                        Spacer()
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-
-            if !folders.isEmpty {
-                Divider()
-                ForEach(folders) { folder in
-                    Button {
-                        requestMeetingFamilyFolderChange(
-                            controller: controller,
-                            selection: selection,
-                            folderPath: folder.path,
-                            historyCount: historyCount
-                        )
-                    } label: {
-                        HStack {
-                            Image(systemName: "folder.fill")
-                                .foregroundStyle(folderColor(for: folder.color))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(folder.displayName)
-                                if let breadcrumb = folder.breadcrumb {
-                                    Text(breadcrumb)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            if preferredFolderPath == folder.path {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            Button {
-                beginCreateFolder(for: selection)
-            } label: {
-                HStack {
-                    Image(systemName: "folder.badge.plus")
-                    Text("New Folder…")
-                }
-            }
+            meetingFamilyFolderMenuItems(
+                controller: controller,
+                selection: selection,
+                historyCount: historyCount,
+                preferredFolderPath: preferredFolderPath,
+                folders: folders
+            )
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: preferredFolderPath == nil ? "folder" : "folder.fill")
@@ -1487,9 +1434,98 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private func sessionFolderMenuChip(controller: NotesController, session: SessionIndex) -> some View {
+    private func meetingFamilyFolderMenuItems(
+        controller: NotesController,
+        selection: MeetingFamilySelection,
+        historyCount: Int,
+        preferredFolderPath: String?,
+        folders: [NotesFolderDefinition]
+    ) -> some View {
+        Button {
+            requestMeetingFamilyFolderChange(
+                controller: controller,
+                selection: selection,
+                folderPath: nil,
+                historyCount: historyCount
+            )
+        } label: {
+            HStack {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                Text("My notes")
+                if preferredFolderPath == nil {
+                    Spacer()
+                    Image(systemName: "checkmark")
+                }
+            }
+        }
+
+        if !folders.isEmpty {
+            Divider()
+            ForEach(folders) { folder in
+                Button {
+                    requestMeetingFamilyFolderChange(
+                        controller: controller,
+                        selection: selection,
+                        folderPath: folder.path,
+                        historyCount: historyCount
+                    )
+                } label: {
+                    HStack {
+                        Image(systemName: "folder.fill")
+                            .foregroundStyle(folderColor(for: folder.color))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(folder.displayName)
+                            if let breadcrumb = folder.breadcrumb {
+                                Text(breadcrumb)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if preferredFolderPath == folder.path {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        Button {
+            beginCreateFolder(for: selection)
+        } label: {
+            HStack {
+                Image(systemName: "folder.badge.plus")
+                Text("New Folder…")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sessionFolderMenuChip(
+        controller: NotesController,
+        session: SessionIndex,
+        selection: MeetingFamilySelection,
+        historyCount: Int,
+        preferredFolderPath: String?,
+        folders: [NotesFolderDefinition]
+    ) -> some View {
         Menu {
             folderAssignmentMenu(controller: controller, session: session)
+
+            Divider()
+
+            Menu("Move meeting family…") {
+                meetingFamilyFolderMenuItems(
+                    controller: controller,
+                    selection: selection,
+                    historyCount: historyCount,
+                    preferredFolderPath: preferredFolderPath,
+                    folders: folders
+                )
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: session.folderPath == nil ? "folder" : "folder.fill")
@@ -1647,7 +1683,14 @@ struct NotesView: View {
 
             HStack(spacing: 8) {
                 if let selectedSession {
-                    sessionFolderMenuChip(controller: controller, session: selectedSession)
+                    sessionFolderMenuChip(
+                        controller: controller,
+                        session: selectedSession,
+                        selection: selection,
+                        historyCount: historyCount,
+                        preferredFolderPath: preferredFolderPath,
+                        folders: folders
+                    )
                 } else {
                     meetingFamilyFolderMenu(
                         controller: controller,
