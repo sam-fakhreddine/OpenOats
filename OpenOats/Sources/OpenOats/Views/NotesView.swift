@@ -404,7 +404,7 @@ struct NotesView: View {
                 Text(session.startedAt, style: .date)
                 Text(session.startedAt, style: .time)
                 Spacer()
-                Text("\(session.utteranceCount) utterances")
+                Text(transcriptStatusText(for: session))
             }
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)
@@ -1766,9 +1766,9 @@ struct NotesView: View {
 
                                 HStack(spacing: 8) {
                                     if entry.session.utteranceCount > 0 {
-                                        Text("\(entry.session.utteranceCount) utterances")
+                                        Text(transcriptStatusText(for: entry.session))
                                     } else {
-                                        Text("No transcript")
+                                        Text(transcriptStatusText(for: entry.session))
                                     }
 
                                     if let source = entry.session.source?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2394,6 +2394,19 @@ struct NotesView: View {
     @ViewBuilder
     private func notesNoTranscriptState(controller: NotesController, state: NotesState) -> some View {
         let isEmbeddedMeetingFamilyDetail = state.selectedMeetingFamily != nil
+        let selectedSession = state.selectedSessionID.flatMap { sessionID in
+            state.sessionHistory.first { $0.id == sessionID }
+        }
+        let sessionIssue = selectedSession?.transcriptIssue
+        let title = sessionIssue?.emptyStateTitle ?? "No transcript"
+        let message = emptyTranscriptMessage(
+            for: sessionIssue,
+            canRetranscribe: state.canRetranscribeSelectedSession
+        )
+        let editorBanner = manualNotesBannerText(
+            for: sessionIssue,
+            canRetranscribe: state.canRetranscribeSelectedSession
+        )
 
         if state.isEditingManualNotes {
             ScrollView {
@@ -2402,7 +2415,7 @@ struct NotesView: View {
                         Image(systemName: "waveform")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
-                        Text("No transcript was recorded for this session. You can still save manual notes.")
+                        Text(editorBanner)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
@@ -2449,18 +2462,34 @@ struct NotesView: View {
         } else if isEmbeddedMeetingFamilyDetail {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("No transcript")
+                    Text(title)
                         .font(.system(size: 18, weight: .semibold))
-                    Text("There are no recorded utterances to turn into notes for this session.")
+                    Text(message)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
 
-                    Button {
-                        controller.startManualNotesEditing()
-                    } label: {
-                        Label("Start writing notes", systemImage: "square.and.pencil")
+                    HStack(spacing: 8) {
+                        if state.canRetranscribeSelectedSession {
+                            Button {
+                                container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                                controller.rerunBatchTranscription(
+                                    model: settings.batchTranscriptionModel,
+                                    settings: settings
+                                )
+                            } label: {
+                                Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(coordinator.batchStatus != .idle)
+                        }
+
+                        Button {
+                            controller.startManualNotesEditing()
+                        } label: {
+                            Label("Start writing notes", systemImage: "square.and.pencil")
+                        }
+                        .buttonStyle(OpenOatsProminentButtonStyle())
                     }
-                    .buttonStyle(OpenOatsProminentButtonStyle())
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -2470,18 +2499,34 @@ struct NotesView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("No transcript")
+                    Text(title)
                         .font(.system(size: 28, weight: .semibold))
-                    Text("There are no recorded utterances to turn into notes for this session.")
+                    Text(message)
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
 
-                    Button {
-                        controller.startManualNotesEditing()
-                    } label: {
-                        Label("Start writing notes", systemImage: "square.and.pencil")
+                    HStack(spacing: 8) {
+                        if state.canRetranscribeSelectedSession {
+                            Button {
+                                container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                                controller.rerunBatchTranscription(
+                                    model: settings.batchTranscriptionModel,
+                                    settings: settings
+                                )
+                            } label: {
+                                Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(coordinator.batchStatus != .idle)
+                        }
+
+                        Button {
+                            controller.startManualNotesEditing()
+                        } label: {
+                            Label("Start writing notes", systemImage: "square.and.pencil")
+                        }
+                        .buttonStyle(OpenOatsProminentButtonStyle())
                     }
-                    .buttonStyle(OpenOatsProminentButtonStyle())
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(32)
@@ -2735,11 +2780,32 @@ struct NotesView: View {
     @ViewBuilder
     private func transcriptView(controller: NotesController, state: NotesState) -> some View {
         if state.loadedTranscript.isEmpty {
+            let selectedSession = state.selectedSessionID.flatMap { sessionID in
+                state.sessionHistory.first { $0.id == sessionID }
+            }
+            let sessionIssue = selectedSession?.transcriptIssue
             ContentUnavailableView {
-                Label("No Transcript", systemImage: "waveform")
+                Label(sessionIssue?.emptyStateTitle ?? "No Transcript", systemImage: "waveform")
             } description: {
-                Text("This session has no recorded utterances.")
+                Text(emptyTranscriptMessage(
+                    for: sessionIssue,
+                    canRetranscribe: state.canRetranscribeSelectedSession
+                ))
             } actions: {
+                if state.canRetranscribeSelectedSession {
+                    Button {
+                        container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                        controller.rerunBatchTranscription(
+                            model: settings.batchTranscriptionModel,
+                            settings: settings
+                        )
+                    } label: {
+                        Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(coordinator.batchStatus != .idle)
+                }
+
                 Button {
                     beginAddTranscript()
                 } label: {
@@ -2772,6 +2838,37 @@ struct NotesView: View {
                 .padding(16)
             }
         }
+    }
+
+    private func transcriptStatusText(for session: SessionIndex) -> String {
+        if session.utteranceCount > 0 {
+            return "\(session.utteranceCount) utterances"
+        }
+        return session.transcriptIssue?.listLabel ?? "No transcript"
+    }
+
+    private func emptyTranscriptMessage(
+        for issue: SessionTranscriptIssue?,
+        canRetranscribe: Bool
+    ) -> String {
+        var message = issue?.emptyStateMessage ?? "There are no recorded utterances to turn into notes for this session."
+        if canRetranscribe {
+            message += " You can re-transcribe the retained audio or add a transcript manually."
+        }
+        return message
+    }
+
+    private func manualNotesBannerText(
+        for issue: SessionTranscriptIssue?,
+        canRetranscribe: Bool
+    ) -> String {
+        var message = issue?.emptyStateMessage ?? "No transcript was recorded for this session."
+        if canRetranscribe {
+            message += " You can re-transcribe the retained audio or save manual notes."
+        } else {
+            message += " You can still save manual notes."
+        }
+        return message
     }
 
     private func cleanupProgressBanner(controller: NotesController, completed: Int, total: Int) -> some View {

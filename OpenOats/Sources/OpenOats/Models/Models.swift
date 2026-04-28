@@ -329,7 +329,7 @@ struct MeetingTemplate: Identifiable, Codable, Sendable, Hashable {
     var isBuiltIn: Bool
 }
 
-struct TemplateSnapshot: Codable, Sendable {
+struct TemplateSnapshot: Codable, Sendable, Equatable {
     let id: UUID
     let name: String
     let icon: String
@@ -367,7 +367,48 @@ struct SessionAudioSource: Identifiable, Sendable, Hashable {
     var displayName: String { kind.displayName }
 }
 
-struct SessionIndex: Identifiable, Codable, Sendable {
+enum SessionTranscriptIssue: String, Codable, Sendable, Equatable {
+    case noAudioDetected
+    case transcriptionProducedNoText
+
+    var listLabel: String {
+        switch self {
+        case .noAudioDetected:
+            return "No audio captured"
+        case .transcriptionProducedNoText:
+            return "Transcription failed"
+        }
+    }
+
+    var emptyStateTitle: String {
+        switch self {
+        case .noAudioDetected:
+            return "No audio captured"
+        case .transcriptionProducedNoText:
+            return "Transcription failed"
+        }
+    }
+
+    var emptyStateMessage: String {
+        switch self {
+        case .noAudioDetected:
+            return "OpenOats did not capture usable microphone or system audio for this session."
+        case .transcriptionProducedNoText:
+            return "OpenOats captured audio for this session, but live transcription did not produce text."
+        }
+    }
+
+    var sessionEndedBannerText: String {
+        switch self {
+        case .noAudioDetected:
+            return "Session ended · No audio captured"
+        case .transcriptionProducedNoText:
+            return "Session ended · Live transcription failed"
+        }
+    }
+}
+
+struct SessionIndex: Identifiable, Codable, Sendable, Equatable {
     let id: String
     let startedAt: Date
     var endedAt: Date?
@@ -389,6 +430,8 @@ struct SessionIndex: Identifiable, Codable, Sendable {
     var source: String?
     /// Stronger recurring meeting-family key derived from a calendar series identifier when available.
     var meetingFamilyKey: String? = nil
+    /// Non-nil when the session ended without a transcript for a known recording/transcription reason.
+    var transcriptIssue: SessionTranscriptIssue? = nil
 }
 
 struct SessionSidecar: Codable, Sendable {

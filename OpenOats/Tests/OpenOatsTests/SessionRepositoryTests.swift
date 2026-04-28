@@ -205,6 +205,69 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testFinalizeSessionPersistsTranscriptIssue() async {
+        let handle = await repo.startSession()
+        let sessionID = handle.sessionID
+
+        await repo.finalizeSession(
+            sessionID: sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: Date(),
+                utteranceCount: 0,
+                title: "Failed Meeting",
+                language: nil,
+                meetingApp: nil,
+                engine: "elevenLabsScribe",
+                templateSnapshot: nil,
+                utterances: [],
+                transcriptIssue: .transcriptionProducedNoText
+            )
+        )
+
+        let sessions = await repo.listSessions()
+        XCTAssertEqual(
+            sessions.first(where: { $0.id == sessionID })?.transcriptIssue,
+            .transcriptionProducedNoText
+        )
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(session.index.transcriptIssue, .transcriptionProducedNoText)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testFinalizeSessionPreservesExistingStartTimeWhenNoUtterancesExist() async {
+        let handle = await repo.startSession()
+        let sessionID = handle.sessionID
+        let originalStartedAt = Date(timeIntervalSince1970: 1_700_123_456)
+
+        await repo.seedSession(
+            id: sessionID,
+            records: [],
+            startedAt: originalStartedAt
+        )
+
+        await repo.finalizeSession(
+            sessionID: sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: originalStartedAt.addingTimeInterval(600),
+                utteranceCount: 0,
+                title: "Empty Meeting",
+                language: nil,
+                meetingApp: nil,
+                engine: "elevenLabsScribe",
+                templateSnapshot: nil,
+                utterances: [],
+                transcriptIssue: .transcriptionProducedNoText
+            )
+        )
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(session.index.startedAt, originalStartedAt)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     // MARK: - saveNotes writes both files
 
     func testSaveNotesWritesBothFiles() async {

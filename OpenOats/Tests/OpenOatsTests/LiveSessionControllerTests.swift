@@ -624,6 +624,89 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNil(LiveSessionController.recordingHealthNotice(for: input))
     }
 
+    func testTranscriptIssueMarksMissingAudioForExtendedEmptySession() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 8,
+            transcriptionModel: .parakeetV3,
+            utteranceCount: 0,
+            peakAudioLevel: 0,
+            micHasCapturedFrames: false,
+            systemHasCapturedFrames: false,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: false
+        )
+
+        XCTAssertEqual(LiveSessionController.transcriptIssue(for: input), .noAudioDetected)
+    }
+
+    func testTranscriptIssueMarksStalledTranscriptionWhenAudioWasCaptured() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 12,
+            transcriptionModel: .elevenLabsScribe,
+            utteranceCount: 0,
+            peakAudioLevel: 0.08,
+            micHasCapturedFrames: true,
+            systemHasCapturedFrames: true,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: false
+        )
+
+        XCTAssertEqual(
+            LiveSessionController.transcriptIssue(for: input),
+            .transcriptionProducedNoText
+        )
+    }
+
+    func testTranscriptIssueLeavesIntentionallyEmptySessionUnmarked() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 3,
+            transcriptionModel: .parakeetV3,
+            utteranceCount: 0,
+            peakAudioLevel: 0,
+            micHasCapturedFrames: false,
+            systemHasCapturedFrames: false,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: false
+        )
+
+        XCTAssertNil(LiveSessionController.transcriptIssue(for: input))
+    }
+
+    func testSyncProjectedStateRefreshesLastEndedSessionWhenSameSessionChanges() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        let failedIndex = SessionIndex(
+            id: "session-1",
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 200),
+            title: "Standup",
+            utteranceCount: 0,
+            hasNotes: false,
+            transcriptIssue: .transcriptionProducedNoText
+        )
+        coordinator.lastEndedSession = failedIndex
+        controller.syncProjectedState(settings: settings)
+        XCTAssertEqual(controller.state.lastEndedSession?.transcriptIssue, .transcriptionProducedNoText)
+
+        var recoveredIndex = failedIndex
+        recoveredIndex.utteranceCount = 3
+        recoveredIndex.transcriptIssue = nil
+        coordinator.lastEndedSession = recoveredIndex
+        controller.syncProjectedState(settings: settings)
+
+        XCTAssertEqual(controller.state.lastEndedSession?.utteranceCount, 3)
+        XCTAssertNil(controller.state.lastEndedSession?.transcriptIssue)
+    }
+
     func testRunningStateChangeCallbackFires() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)

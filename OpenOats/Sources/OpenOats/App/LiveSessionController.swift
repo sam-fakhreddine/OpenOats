@@ -138,6 +138,9 @@ final class LiveSessionController {
                             await notifService.postBatchCompleted(sessionID: sid)
                         }
                         await coordinator.loadHistory()
+                        if coordinator.lastEndedSession?.id == sid {
+                            coordinator.lastEndedSession = await coordinator.sessionRepository.loadSession(id: sid).index
+                        }
 
                         Task { @MainActor in
                             try? await Task.sleep(for: .seconds(3))
@@ -412,6 +415,10 @@ final class LiveSessionController {
             await coordinator.sessionRepository.saveScratchpad(sessionID: sessionID, text: state.scratchpadText)
         }
 
+        let captureHealthAtStop = coordinator.transcriptionEngine?.captureHealthSnapshot
+        let wasMicMutedAtStop = state.isMicMuted
+        let peakAudioLevelAtStop = observedPeakAudioLevelSinceStart
+
         // 1. Drain audio buffers
         await coordinator.transcriptionEngine?.finalize()
 
@@ -450,6 +457,33 @@ final class LiveSessionController {
             guard let locale = settings?.transcriptionLocale, !locale.isEmpty else { return nil }
             return locale
         }()
+        let transcriptIssueInput: RecordingHealthInput
+        if let meetingStartedAt = endingMetadata?.startedAt, let transcriptionModel = settings?.transcriptionModel {
+            transcriptIssueInput = RecordingHealthInput(
+                elapsed: max(0, Date().timeIntervalSince(meetingStartedAt)),
+                transcriptionModel: transcriptionModel,
+                utteranceCount: utteranceCount,
+                peakAudioLevel: peakAudioLevelAtStop,
+                micHasCapturedFrames: captureHealthAtStop?.micHasCapturedFrames ?? false,
+                systemHasCapturedFrames: captureHealthAtStop?.systemHasCapturedFrames ?? false,
+                micCaptureError: captureHealthAtStop?.micCaptureError,
+                isMicMuted: wasMicMutedAtStop,
+                hasBlockingError: false
+            )
+        } else {
+            transcriptIssueInput = RecordingHealthInput(
+                elapsed: 0,
+                transcriptionModel: settings?.transcriptionModel ?? .parakeetV3,
+                utteranceCount: utteranceCount,
+                peakAudioLevel: peakAudioLevelAtStop,
+                micHasCapturedFrames: captureHealthAtStop?.micHasCapturedFrames ?? false,
+                systemHasCapturedFrames: captureHealthAtStop?.systemHasCapturedFrames ?? false,
+                micCaptureError: captureHealthAtStop?.micCaptureError,
+                isMicMuted: wasMicMutedAtStop,
+                hasBlockingError: false
+            )
+        }
+        let transcriptIssue = Self.transcriptIssue(for: transcriptIssueInput)
 
         // 4. Finalize: closes file handle, backfills cleaned text, writes session.json
         await coordinator.sessionRepository.finalizeSession(
@@ -463,7 +497,8 @@ final class LiveSessionController {
                 engine: engineName,
                 templateSnapshot: coordinator.sessionTemplateSnapshot,
                 utterances: utterancesSnapshot,
-                calendarEvent: endingMetadata?.calendarEvent
+                calendarEvent: endingMetadata?.calendarEvent,
+                transcriptIssue: transcriptIssue
             )
         )
 
@@ -476,7 +511,7 @@ final class LiveSessionController {
         // 5. Build index for UI state
         let index = SessionIndex(
             id: sessionID,
-            startedAt: utterancesSnapshot.first?.timestamp ?? Date(),
+            startedAt: utterancesSnapshot.first?.timestamp ?? endingMetadata?.startedAt ?? Date(),
             endedAt: Date(),
             templateSnapshot: coordinator.sessionTemplateSnapshot,
             title: title,
@@ -484,7 +519,8 @@ final class LiveSessionController {
             hasNotes: false,
             language: transcriptionLanguage,
             meetingApp: meetingAppName,
-            engine: engineName
+            engine: engineName,
+            transcriptIssue: transcriptIssue
         )
 
         // 5b. Fire webhook if configured
@@ -649,6 +685,27 @@ final class LiveSessionController {
         )
     }
 
+    static func transcriptIssue(for input: RecordingHealthInput) -> SessionTranscriptIssue? {
+        guard input.utteranceCount == 0 else { return nil }
+
+        if let micCaptureError = input.micCaptureError, !micCaptureError.isEmpty {
+            return .noAudioDetected
+        }
+
+        if input.elapsed >= 5,
+           !input.systemHasCapturedFrames,
+           (!input.isMicMuted && !input.micHasCapturedFrames) {
+            return .noAudioDetected
+        }
+
+        if input.peakAudioLevel >= 0.04,
+           input.micHasCapturedFrames || input.systemHasCapturedFrames {
+            return .transcriptionProducedNoText
+        }
+
+        return nil
+    }
+
     static func recordingHealthNotice(for input: RecordingHealthInput) -> RecordingHealthNotice? {
         guard !input.hasBlockingError else { return nil }
 
@@ -767,7 +824,7 @@ final class LiveSessionController {
         set(\.isGeneratingSuggestions, sidebarGenerating)
         set(\.batchStatus, coordinator.batchStatus)
         set(\.batchIsImporting, coordinator.batchIsImporting)
-        if state.lastEndedSession?.id != lastEndedSession?.id { state.lastEndedSession = lastEndedSession }
+        if state.lastEndedSession != lastEndedSession { state.lastEndedSession = lastEndedSession }
         set(\.lastSessionHasNotes, lastSessionHasNotes)
         set(\.kbIndexingStatus, coordinator.knowledgeBase?.indexingStatus ?? .idle)
         set(\.statusMessage, coordinator.transcriptionEngine?.assetStatus)

@@ -69,40 +69,68 @@ struct ContentView: View {
             Divider()
 
             // Post-session banner
-            if let lastSession = controllerState.lastEndedSession, lastSession.utteranceCount > 0 {
-                HStack {
-                    Text("Session ended \u{00B7} \(lastSession.utteranceCount) utterances")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("app.sessionEndedBanner")
-                    Spacer()
-                    if controllerState.lastSessionHasNotes {
+            if let lastSession = controllerState.lastEndedSession {
+                if lastSession.utteranceCount > 0 {
+                    HStack {
+                        Text("Session ended \u{00B7} \(lastSession.utteranceCount) utterances")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("app.sessionEndedBanner")
+                        Spacer()
+                        if controllerState.lastSessionHasNotes {
+                            Button {
+                                openWindow(id: "notes")
+                            } label: {
+                                Label("View Notes", systemImage: "doc.text")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("app.viewNotesButton")
+                        } else {
+                            Button {
+                                openWindow(id: "notes")
+                            } label: {
+                                Label("Generate Notes", systemImage: "sparkles")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(OpenOatsProminentButtonStyle())
+                            .controlSize(.small)
+                            .accessibilityIdentifier("app.generateNotesButton")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+
+                    Divider()
+                } else if let transcriptIssue = lastSession.transcriptIssue {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.orange)
+
+                        Text(transcriptIssue.sessionEndedBannerText)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("app.sessionEndedBanner")
+                        Spacer()
                         Button {
                             openWindow(id: "notes")
                         } label: {
-                            Label("View Notes", systemImage: "doc.text")
+                            Label("Review Session", systemImage: "arrow.right.circle")
                                 .font(.system(size: 12))
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .accessibilityIdentifier("app.viewNotesButton")
-                    } else {
-                        Button {
-                            openWindow(id: "notes")
-                        } label: {
-                            Label("Generate Notes", systemImage: "sparkles")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(OpenOatsProminentButtonStyle())
-                        .controlSize(.small)
-                        .accessibilityIdentifier("app.generateNotesButton")
+                        .accessibilityIdentifier("app.reviewSessionButton")
                     }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
 
-                Divider()
+                    Divider()
+                }
             }
 
             if controllerState.isRunning, let event = controllerState.matchedCalendarEvent {
