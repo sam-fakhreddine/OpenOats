@@ -4,7 +4,8 @@ import MLXAudioSpike
 
 /// Test executable for MLX Audio spike validation
 /// 
-/// Run: swift run MLXAudioTest
+/// Run via xcodebuild (required for Metal support):
+/// DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -scheme MLXAudioTest -destination 'platform=macOS'
 @main
 struct MLXAudioTest {
     static func main() async throws {
@@ -25,7 +26,12 @@ struct MLXAudioTest {
         let result = try await MLXAudioSpike.validateTranscription(samples: testSamples)
         print("Result: \(result)")
         
+        // Test 4: List available models
+        print("\n[Test 4] Available models...")
+        MLXAudioSpike.listAvailableModels()
+        
         print("\n✅ Spike validation complete")
         print("\n📚 mlx-audio-swift: https://github.com/Blaizzy/mlx-audio-swift")
+        print("📖 API: Model.fromPretrained() -> model.generate(audio: MLXArray) -> STTOutput")
     }
 }
