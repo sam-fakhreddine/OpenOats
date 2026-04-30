@@ -1,4 +1,5 @@
 import MLX
+import MLXAudio
 import MLXAudioSpike
 
 /// Test executable for MLX Audio spike validation
@@ -25,7 +26,6 @@ struct MLXAudioTest {
         print("Result: \(result)")
         
         print("\n✅ Spike validation complete")
-        print("\nNote: Full MLX Audio STT integration requires additional research.")
-        print("The mlx-audio package mentioned in SETUP_GUIDE.md is not yet publicly available.")
+        print("\n📚 mlx-audio-swift: https://github.com/Blaizzy/mlx-audio-swift")
     }
 }

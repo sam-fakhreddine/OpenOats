@@ -1,20 +1,20 @@
 # MLX Audio Spike Investigation
 
-**Purpose**: Validate MLX Swift API compatibility with OpenOats TranscriptionBackend protocol.
+**Purpose**: Validate MLX Swift Audio API compatibility with OpenOats TranscriptionBackend protocol.
 
 ## Goals
 
-- [ ] Validate MLX operations with `[Float]` audio buffers
-- [ ] Test buffer transfer efficiency (minimize copying)
-- [ ] Measure performance on M4 Pro
-- [ ] Validate memory usage patterns
-- [ ] Research available MLX audio/STT libraries
+- [ ] Validate MLX audio transcription with `[Float]` buffers
+- [ ] Test zero-copy buffer transfer (avoid sample copying)
+- [ ] Measure RTF (Real-Time Factor) on M4 Pro
+- [ ] Validate memory usage stays within 1GB wired limit
+- [ ] Test Q4 quantization quality vs speed tradeoff
 
 ## Structure
 
 ```
 investigations/mlx-audio-spike/
-├── Package.swift          # MLX Swift dependency
+├── Package.swift          # MLX + MLXAudio dependencies
 ├── Sources/
 │   ├── MLXAudioSpike/     # Library target
 │   │   └── MLXAudioSpike.swift
@@ -26,8 +26,7 @@ investigations/mlx-audio-spike/
 ## Dependencies
 
 - [mlx-swift](https://github.com/ml-explore/mlx-swift) - Core MLX framework
-
-**Note**: The `mlx-audio` package mentioned in SETUP_GUIDE.md is not yet publicly available. This spike uses core MLX for validation.
+- [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) - Audio processing and STT for MLX
 
 ## Usage
 
@@ -44,22 +43,27 @@ swift build
 swift run MLXAudioTest
 ```
 
-## API Patterns Validated
+## API Patterns to Validate
 
-### MLXArray from [Float] buffer
+### Model Loading with Q4 Quantization
 ```swift
-import MLX
+import MLXAudio
 
-// Create MLXArray from samples (copies data)
-let mlxArray = MLXArray(samples)
-print("Shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
+let whisper = STT.whisper(model: .largeTurbo, quantization: .q4)
+try await whisper.load { progress in
+    // Report download progress 0.0...1.0
+}
 ```
 
-### Basic Audio Operations
+### Zero-Copy Buffer Transfer
 ```swift
-// Simulate audio processing
-let audioBuffer = MLXArray.zeros([16000])  // 1 second at 16kHz
-eval(audioBuffer)
+// Wrap existing [Float] buffer directly
+let mlxArray = MLXArray(
+    shape: [samples.count],
+    dtype: .float32,
+    buffer: UnsafeMutableRawPointer(mutating: samples)
+)
+let result = try await whisper.transcribe(mlxArray)
 ```
 
 ## Success Criteria
@@ -68,23 +72,15 @@ eval(audioBuffer)
 |--------|--------|--------|
 | Package resolution | Working | ✅ Pass |
 | Build | Clean | ⏳ Pending |
-| Buffer transfer | < 1ms | ⏳ Pending |
-| Memory | Predictable | ⏳ Pending |
+| Zero-copy transfer | Working | ⏳ Pending |
+| Q4 quality | Acceptable | ⏳ Pending |
 
 ## Findings
 
 ### 2026-04-30: Initial Setup
-- ✅ mlx-swift package resolves correctly
-- ⚠️ mlx-audio package not found at expected URL
-- 📝 Need to research alternative MLX audio/STT solutions
-
-## Alternative Approaches
-
-Since `mlx-audio` is not available, consider:
-
-1. **WhisperKit + MLX backend** - Check if WhisperKit supports MLX execution
-2. **Custom MLX implementation** - Build STT pipeline using core MLX
-3. **ANE + GPU hybrid** - Use WhisperKit CoreML (ANE) for mic, MLX (GPU) for system audio
+- ✅ mlx-swift package resolves correctly (v0.31.3)
+- ✅ mlx-audio-swift repository found: https://github.com/Blaizzy/mlx-audio-swift
+- 📝 Need to explore mlx-audio-swift API surface
 
 ## References
 
@@ -92,6 +88,7 @@ Since `mlx-audio` is not available, consider:
 - [asr_feasibility_report_max_hw_accel.json](../../asr_feasibility_report_max_hw_accel.json) - Feasibility analysis
 - OpenOats `TranscriptionBackend.swift` - Protocol definition
 - [MLX Swift Documentation](https://ml-explore.github.io/mlx-swift/)
+- [mlx-audio-swift Repository](https://github.com/Blaizzy/mlx-audio-swift)
 
 ## Decision Gate
 
@@ -100,7 +97,7 @@ See SIMPLIFIED_WORKFLOW.md for gate criteria.
 
 ## Next Steps
 
-1. Complete build validation
-2. Research available MLX audio/STT options
-3. Update SETUP_GUIDE.md with corrected dependency information
-4. Decide on hybrid ANE+GPU approach vs pure MLX approach
+1. Resolve mlx-audio-swift dependencies
+2. Explore STT API surface (Whisper, etc.)
+3. Validate buffer transfer patterns
+4. Measure performance on M4 Pro hardware
