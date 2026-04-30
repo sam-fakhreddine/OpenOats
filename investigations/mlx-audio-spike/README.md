@@ -45,27 +45,53 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -schem
 ~/Library/Developer/Xcode/DerivedData/mlx-audio-spike-*/Build/Products/Debug/MLXAudioTest
 ```
 
-## API Patterns to Validate
+## API Patterns Discovered
 
-### Model Loading with Q4 Quantization
+### Model Loading and Transcription
 ```swift
-import MLXAudio
+import MLX
+import MLXAudioSTT
 
-let whisper = STT.whisper(model: .largeTurbo, quantization: .q4)
-try await whisper.load { progress in
-    // Report download progress 0.0...1.0
+// Load model from HuggingFace
+let model = try await ParakeetModel.fromPretrained("nvidia/parakeet-rnnt-1.1b")
+
+// Create MLXArray from [Float] samples
+let mlxArray = MLXArray(samples)
+
+// Generate transcription
+let output = model.generate(audio: mlxArray)
+print(output.text)
+```
+
+### Available Models
+
+| Model Family | Repository | Size |
+|--------------|------------|------|
+| **Parakeet** (NVIDIA) | nvidia/parakeet-rnnt-1.1b | 1.1B |
+| | nvidia/parakeet-ctc-1.1b | 1.1B |
+| | nvidia/parakeet-tdt-1.1b | 1.1B |
+| **Qwen3ASR** (Alibaba) | Qwen/Qwen3-ASR-2B | 2B |
+| | Qwen/Qwen3-ASR-7B | 7B |
+| **GraniteSpeech** (IBM) | ibm-granite/granite-speech-3.3b | 3.3B |
+| **VoxtralRealtime** (Mistral) | mistralai/Voxtral-Realtime-2409 | - |
+| **GLMASR** (Zhipu) | THUDM/glm-asr-9b | 9B |
+
+### STTGenerationModel Protocol
+```swift
+public protocol STTGenerationModel: AnyObject {
+    var defaultGenerationParameters: STTGenerateParameters { get }
+    
+    func generate(audio: MLXArray, generationParameters: STTGenerateParameters) -> STTOutput
+    func generateStream(audio: MLXArray, generationParameters: STTGenerateParameters) -> AsyncThrowingStream<STTGeneration, Error>
 }
 ```
 
-### Zero-Copy Buffer Transfer
+### Buffer Transfer
 ```swift
-// Wrap existing [Float] buffer directly
-let mlxArray = MLXArray(
-    shape: [samples.count],
-    dtype: .float32,
-    buffer: UnsafeMutableRawPointer(mutating: samples)
-)
-let result = try await whisper.transcribe(mlxArray)
+// MLXArray copies data by design (safety)
+let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
+
+// For zero-copy, use UnsafeMutablePointer (advanced)
 ```
 
 ## Success Criteria
@@ -76,7 +102,8 @@ let result = try await whisper.transcribe(mlxArray)
 | Build (xcodebuild) | Clean | ✅ Pass |
 | Runtime (Metal) | GPU access | ✅ Pass (M4 Pro) |
 | Buffer transfer | Working | ✅ Pass |
-| STT API exploration | Working | ⏳ Next step |
+| STT API exploration | Documented | ✅ Pass |
+| Model loading test | Working | ⏳ Step 3 |
 | Q4 quantization | Tested | ⏳ Pending |
 
 ## Findings
@@ -89,6 +116,14 @@ let result = try await whisper.transcribe(mlxArray)
 - ✅ **MLXArray from [Float]** works (copies data as designed)
 - 📝 Module name is `MLXAudioSTT` (not `MLXAudio`)
 - 📝 File naming: Use `MLXAudioTest.swift` not `main.swift` with `@main`
+
+### 2026-04-30: API Exploration (Step 2 Complete)
+- ✅ **5 STT model families** available: Parakeet, Qwen3ASR, GraniteSpeech, VoxtralRealtime, GLMASR
+- ✅ **API Pattern**: `Model.fromPretrained()` → `model.generate(audio: MLXArray)` → `STTOutput`
+- ✅ **Protocol-based**: All models conform to `STTGenerationModel` protocol
+- ✅ **Streaming support**: `generateStream()` available for real-time transcription
+- ✅ **HuggingFace integration**: Models auto-download from HF Hub
+- 📝 **No Q4 quantization visible** in current API - may be automatic or not yet implemented
 
 ### Available Modules (from build output)
 - `MLXAudioSTT` - Speech-to-text (Whisper, Parakeet, Qwen3ASR, etc.)
