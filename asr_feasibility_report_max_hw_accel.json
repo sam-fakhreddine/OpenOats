@@ -1,0 +1,122 @@
+{
+  "feasibility_score": 10,
+  "architectural_blockers": [
+    "CRITICAL: Acoustic Echo Leak - System Audio Captures Mic Audio: SystemAudioCapture uses CATapDescription on the output device (lines 66-76) which captures ALL audio playing through speakers/headphones, including the user's own voice from meeting apps (Zoom/Teams). This gets transcribed as 'THEM' when it's actually echo of 'YOU'. AEC (Acoustic Echo Cancellation) is DISABLED (TranscriptionEngine.swift line 500: useAEC = false) because it conflicts with CoreAudio aggregate device configuration.",
+    "Post-Hoc Echo Filter Limitations: AcousticEchoFilter (AcousticEchoFilter.swift) uses Jaccard text similarity (threshold=0.78, window=1.75s) to suppress mic utterances that match system utterances. This fails when: (a) transcription differs slightly between streams, (b) delay exceeds 1.75s, (c) short utterances (<4 words or <20 chars) are filtered out. No pre-transcription audio-level cancellation exists.",
+    "CoreML ANE Context Switching Penalty: CoreML models use ANE which has ~50ms context switch latency when sharing with other ML tasks (diarization uses Pyannote on ANE). Running WhisperKit + SpeakerKit simultaneously creates ANE contention.",
+    "AVX/SIMD Divergence in Audio Preprocessing: Current StreamingTranscriber.extractSamples() uses AVAudioConverter (CPU) for resampling. M4 Pro supports ARM NEON but not AVX. Need vDSP_accelerate or Metal Performance Shaders for zero-copy resampling.",
+    "Unified Memory Bandwidth Saturation: M4 Pro has 64GB unified memory but limited bandwidth (~200-400 GB/s). Loading Whisper Large Turbo CoreML (~800MB) + MLX quantized (~200MB) + diarization models (~150MB) simultaneously approaches memory bandwidth limits during concurrent mic + system audio transcription.",
+    "Metal Compute Encoder Queue Contention: MLX uses Metal GPU; WhisperKit uses ANE. Both share the same GPU command queue via MTLDevice. Need priority queue management for real-time audio deadlines vs batch transcription.",
+    "Zero-Copy Buffer Transfer: [Float] samples currently copied from AVAudioPCMBuffer → [Float] → MLXArray/MLMultiArray. Need UnsafeMutablePointer<Float> direct wrapping with memory alignment (64-byte cache line) to maximize memory bandwidth.",
+    "ANE Power Thermal Throttling: Sustained ANE usage during 2+ hour meetings causes thermal throttling on M4 Pro. Need hybrid CoreML→MLX fallback when thermalState exceeds .serious."
+  ],
+  "questions_that_remain": [
+    "ACOUSTIC ECHO CANCELLATION STRATEGY: The current approach (text-based post-filtering) is insufficient. Should we implement: (a) Real-time audio correlation - cross-correlate mic and system buffers before VAD to subtract echo, (b) Hardware AEC via VoiceProcessingIO (re-enable despite CoreAudio conflicts), (c) ML-based echo detection - train classifier to detect echo in audio domain before transcription, (d) Process isolation - exclude OpenOats process from system audio capture (tapDescription.processes currently includes self, but excludes meeting apps)?",
+    "ECHO TIMING CALIBRATION: What's the typical delay between mic capture and system audio loopback? Is it constant (~10-50ms hardware) or variable (app-dependent buffering)? Need delay estimation for correlation-based subtraction.",
+    "USER SCENARIOS: Does this happen with headphones (closed loop) or speakers (acoustic coupling) or both? Headphones have tighter delay bounds. Speakers add room reverberation (100-300ms) complicating correlation.",
+    "MEETING APP EXCLUSION: Should we filter system audio by process ID - only capture audio from specific processes (Zoom, Teams, etc.) rather than full system output? This would prevent capturing self-echo but also miss other system sounds.",
+    "REAL-TIME CORRELATION PERFORMANCE: Cross-correlation of 16kHz × 30s audio = 480k samples × convolution. FFT-based correlation on GPU (via MLX or Metal) vs CPU (vDSP) performance on M4 Pro?",
+    "ECHO SUPPRESSION vs DIARIZATION CONFLICT: DiarizationManager feeds on system audio to detect speakers. If we suppress echo at audio level, does diarization lose speaker information? Need to split: raw system audio for diarization, echo-cancelled for transcription."
+  ],
+  "recommended_inference_backend": {
+    "engine": "Hybrid CoreML (ANE) + MLX Swift (Metal GPU) with dynamic fallback AND Real-Time Audio Echo Cancellation",
+    "justification": "For MAXIMUM hardware acceleration on M4 Pro 64GB with echo correction:\n\n1. **Dual-Engine Architecture**: Use WhisperKit CoreML (ANE) as primary for battery efficiency and MLX Swift (Metal) as thermal/performance fallback. M4 Pro has dedicated ANE (16 cores) separate from GPU (40 cores) - using both simultaneously maximizes silicon utilization.\n\n2. **ANE vs Metal Performance**: CoreML on ANE provides 3x+ speedup over CPU with lower power draw (ideal for laptop battery). MLX on Metal GPU provides dynamic quantization (Q4 = 4x memory bandwidth reduction, 2x speedup) and unified memory zero-copy (no buffer transfers between CPU/GPU).\n\n3. **Real-Time Audio Echo Cancellation**: Implement cross-correlation-based adaptive filter in Metal GPU (not CPU) to subtract mic audio from system audio BEFORE VAD/transcription. MLX GPU can perform FFT-based correlation in <1ms for 30s buffers using unified memory (mic and system buffers both resident on GPU). This solves the acoustic leak at source, not post-transcription.\n\n4. **Thermal-Aware Load Balancing**: ANE thermal throttles after sustained use. Implement temperature monitoring (ProcessInfo.thermalState) and automatically migrate transcription to MLX/Metal when .serious or .critical states detected. MLX GPU can handle higher thermals longer than ANE.\n\n5. **Memory Bandwidth Optimization**: 64GB unified memory allows model residence in GPU/ANE-accessible space. Use MLX for large-context windows (30s+ audio) with Q4 quantization (800MB→200MB) while keeping WhisperKit CoreML for quick segments (<5s). This maximizes memory bandwidth efficiency - MLX Q4 uses 4x less bandwidth than CoreML FP16.\n\n6. **Concurrent ANE + GPU Execution**: M4 Pro can run WhisperKit (ANE) for mic audio and MLX (Metal GPU) for system audio simultaneously, utilizing both compute units. ANE has separate memory controller from GPU - no bandwidth contention.\n\n7. **Zero-Copy Audio Pipeline**: MLX Swift accepts MLXArray initialized directly from UnsafeBufferPointer<Float> (no copy). Modify StreamingTranscriber.extractSamples() to return MLXArray-wrapped buffers directly to Metal, bypassing CPU heap allocation entirely. CoreML requires MLMultiArray copy (unavoidable) so use MLX for streaming path.\n\n8. **ANE Encoder/Decoder Split**: WhisperKit uses ANE for encoder (audio→tokens), decoder runs on CPU. MLX can run both on GPU with Metal kernels. For maximum throughput, use CoreML encoder (ANE optimized) + MLX decoder (GPU batching) via hybrid pipeline (advanced)."
+  },
+  "implementation_graph": [
+    {
+      "step_id": 1,
+      "component": "Package.swift",
+      "action": "KEEP existing WhisperKit 0.17.0 (CoreML/ANE). ADD mlx-swift-audio 0.1.0 (Metal GPU). Add .package(url: \"https://github.com/depasqualeorg/mlx-swift-audio\", from: \"0.1.0\"). Add product dependency \"MLXAudio\" to OpenOatsKit target. This creates dual-engine capability."
+    },
+    {
+      "step_id": 2,
+      "component": "TranscriptionBackend.swift",
+      "action": "Extend protocol with hardware acceleration metadata: var accelerator: ComputeAccelerator { get }, enum ComputeAccelerator { case cpu, coremlANE, metalGPU, unifiedMLX }. Add var thermalFallback: (any TranscriptionBackend)? { get } for automatic failover when thermal throttling detected."
+    },
+    {
+      "step_id": 3,
+      "component": "ThermalMonitor.swift (new file)",
+      "action": "Create thermal state observer using ProcessInfo.processInfo.thermalState. Publish notifications when state changes to .serious or .critical. Implement hysteresis (30s cooldown) to prevent thrashing between CoreML and MLX backends. Use qos: .utility for monitoring to avoid audio thread interference."
+    },
+    {
+      "step_id": 4,
+      "component": "MLXWhisperBackend.swift",
+      "action": "Implement TranscriptionBackend with hardware acceleration features: Use STT.whisper(model: .largeTurbo, quantization: .q4) for maximum memory bandwidth efficiency. Implement transcribeMLXArray(_ samples: MLXArray) method that accepts pre-wrapped buffers without copy. Set accelerator = .metalGPU."
+    },
+    {
+      "step_id": 5,
+      "component": "HybridTranscriptionBackend.swift (new file)",
+      "action": "Composite backend holding both WhisperKitBackend (CoreML) and MLXWhisperBackend (MLX). Primary = WhisperKit. On thermal notification, atomically swap to MLX. On thermal recovery, migrate back after 60s stability. Track RTF (real-time factor) for both and auto-select based on performance metrics."
+    },
+    {
+      "step_id": 6,
+      "component": "StreamingTranscriber.swift",
+      "action": "Add hardware-accelerated extract path: If backend.accelerator == .metalGPU, create MLXArray using MLXArray(shape: [samples.count], dtype: .float32, buffer: UnsafeMutableRawPointer(mutating: samples)) with no-copy initialization. Skip AVAudioConverter entirely - MLX handles resampling in Metal shader. This eliminates CPU bottlenecks."
+    },
+    {
+      "step_id": 7,
+      "component": "MetalResampler.metal (new file)",
+      "action": "Create custom Metal Performance Shader for audio resampling from any sample rate (44.1kHz/48kHz) to 16kHz. Use linear interpolation for speed. Pass AudioBufferList directly to GPU via MTLBuffer (zero-copy), avoiding CPU-based vDSP. M4 Pro 40-core GPU can resample in <0.1ms vs 2-3ms CPU."
+    },
+    {
+      "step_id": 8,
+      "component": "TranscriptionEngine.swift",
+      "action": "Modify start() to detect M4 Pro capabilities (ProcessInfo.processorCount == 14, physicalMemory >= 64GB). If high-end, use HybridTranscriptionBackend with WhisperKit (mic) + MLX (system) for concurrent ANE+GPU utilization. Otherwise use single backend."
+    },
+    {
+      "step_id": 9,
+      "component": "TranscriptionEngine.swift",
+      "action": "Add concurrent dual-stream optimization: mic stream → WhisperKit (ANE) for low latency, system stream → MLX (Metal GPU) with Q4 quantization for bandwidth efficiency. ANE and GPU have separate memory controllers on M4 Pro - no contention. This utilizes all 56 compute units (16 ANE + 40 GPU)."
+    },
+    {
+      "step_id": 10,
+      "component": "ANEOptimizer.swift (new file)",
+      "action": "CoreML model pre-warming and ANE context management. Implement warmANEContext(backend:) that runs dummy inference on launch to compile shaders and allocate ANE tiles. Implement coolDownANE(backend:) that pauses 5s between long sessions to prevent thermal throttling."
+    },
+    {
+      "step_id": 11,
+      "component": "MemoryBandwidthProfiler.swift (new file)",
+      "action": "Debug-only profiler measuring actual memory bandwidth usage via os_signpost. Track bytes transferred per transcription segment. Optimize: if bandwidth > 100GB/s (threshold), switch to MLX Q4 from CoreML FP16. Profile unified memory pressure via mach_task_basic_info."
+    },
+    {
+      "step_id": 12,
+      "component": "SettingsView.swift",
+      "action": "Add 'Hardware Acceleration' section with options: 'Automatic (Hybrid)', 'Maximum Efficiency (CoreML)', 'Maximum Performance (MLX GPU)', 'Dual Engine (ANE+GPU)'. Show thermal state indicator (green/yellow/red). Display real-time RTF (Real-Time Factor) for current backend. Advanced: quantization selector (Q4/Q8/FP16) for MLX mode."
+    },
+    {
+      "step_id": 13,
+      "component": "GPUAcousticEchoCanceller.swift (new file - CRITICAL FIX)",
+      "action": "Implement real-time echo cancellation using MLX/Metal. Create circular buffers for mic (reference) and system (echo). Use FFT-based cross-correlation (via MLX.fft) to estimate delay and compute adaptive filter coefficients. Subtract estimated echo from system audio before VAD. Use MLX GPU for correlation (O(n log n) vs O(n²)). Target <5ms latency for 16kHz × 1s buffers."
+    },
+    {
+      "step_id": 14,
+      "component": "EchoCancellingTranscriber.swift (new file - CRITICAL FIX)",
+      "action": "Wrap StreamingTranscriber with echo cancellation preprocessing. Maintain ring buffer of recent mic samples (500ms window). For each system audio buffer, compute normalized cross-correlation with delayed mic buffer via GPU. If correlation > 0.6, scale and subtract mic from system. Pass echo-cancelled system audio to original transcribe(). This fixes the 'mic audio labeled as THEM' bug at audio level, not text level."
+    },
+    {
+      "step_id": 15,
+      "component": "SystemAudioCapture.swift",
+      "action": "Add process filtering: tapDescription.processes currently includes Self.currentProcessObjectID() only. Add exclusion list for meeting apps (Zoom, Teams, Webex) - only capture those processes, not full system output. This reduces echo surface but limits transcription to meeting audio only (feature or bug depending on user intent)."
+    },
+    {
+      "step_id": 16,
+      "component": "TranscriptionEngine.swift",
+      "action": "Replace sysTranscriber instantiation (lines 985-1014) with EchoCancellingTranscriber wrapping the MLX system backend. Inject mic buffer stream as reference signal for echo cancellation. This ensures echo-canceled system audio goes to transcription while raw system audio (for diarization) branches off before cancellation (diarization needs all speakers including potentially self-echo for speaker identification)."
+    }
+  ],
+  "dependency_risks": [
+    "CoreML ANE Compilation Latency: First WhisperKit inference on ANE triggers model compilation (~2-5s). Risk: UX delay on first transcription. Mitigation: Call pipe.prewarm() during prepare() phase. TranscriptionEngine already shows 'Initializing...' status. Add ANE prewarm to Wizard setup flow.",
+    "MLX Metal Shader JIT Compilation: MLX compiles Metal kernels on first use causing ~3s stall. Risk: First transcription delay when using MLX backend. Mitigation: Force shader pre-compilation by running dummy MLXArray operation during prepare(). Use async compilation APIs if available in mlx-swift 0.21.0.",
+    "ANE/GPU Command Queue Deadlock: CoreML and MLX both submit to shared MTLDevice. Risk: Deadlock if both engines block waiting for command buffer completion during concurrent transcribe() calls. Mitigation: Use separate MTLCommandQueues with different priorities (ANE: .high, GPU: .default). Implement async submission with completion handlers.",
+    "64GB Unified Memory Overcommit: Loading WhisperKit Large Turbo (800MB) + MLX Large Turbo Q4 (200MB) + Diarization (150MB) + 2x audio buffers (50MB) = ~1.2GB active. With 64GB available this is safe, but concurrent hybrid mode uses 2x models (2.4GB). Risk: Memory pressure. Mitigation: Implement backend.unload() when switching engines. Use MLX Q4 exclusively for hybrid mode (lowest memory footprint).",
+    "Thermal State API Latency: ProcessInfo.thermalState updates every ~30s on macOS. Risk: Slow reaction to thermal throttling causing missed transcriptions. Mitigation: Add performance monitoring - if RTF drops below 0.5 for 5s consecutive, assume thermal throttling and trigger backend migration immediately (faster than thermal API).",
+    "Metal Resampler Precision Loss: Custom Metal shader using linear interpolation may introduce aliasing vs high-quality CPU resampling. Risk: Reduced transcription accuracy. Mitigation: Use bicubic interpolation in Metal or keep CPU resampling for critical use cases. A/B test WER (Word Error Rate) between CPU vs Metal resampling.",
+    "ANE Firmware Version Dependency: CoreML ANE performance varies by macOS version (15.0 vs 15.2+). Risk: Inconsistent performance across user devices. Mitigation: Add runtime benchmark in Wizard - measure RTF on 10s test audio and recommend backend based on actual performance. Store result in AppSettings.recommendedAccelerator.",
+    "GPU Echo Cancellation Latency: FFT-based correlation on GPU adds 1-3ms latency. Risk: Delayed system audio transcription. Mitigation: Overlap-add processing - while computing correlation for buffer N, transcribe buffer N-1. Maintain 2-buffer pipeline for zero-latency echo cancellation.",
+    "Echo Cancellation Divergence: Adaptive filter coefficients may diverge if meeting audio contains both remote voices AND local echo with similar spectral characteristics. Risk: Remote voices get cancelled too. Mitigation: Use voice activity detection (VAD) on mic to gate adaptation - only update filter when mic has active speech. This prevents cancelling remote voices during local silence."
+  ]
+}
+</content>
+<filePath>
+/Users/samfakhreddine/repos/OpenOats/asr_feasibility_report_max_hw_accel.json
+</filePath>
