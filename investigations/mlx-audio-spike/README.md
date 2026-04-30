@@ -129,9 +129,10 @@ let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
 - ✅ **Model download works** - Successfully downloads ~4GB from HuggingFace
 - ✅ **Cache system works** - Models cached at `~/.cache/huggingface/hub/mlx-audio/`
 - ✅ **MLXArray input works** - Synthetic audio generation and MLXArray creation
-- ⚠️ **Config parsing error** - `keyNotFound: preprocessor` - Model format mismatch
-- 📝 **Model version issue** - The nvidia/parakeet-ctc-1.1b config doesn't match expected format
-- 📝 **Next step** - Try different model or check mlx-audio-swift version compatibility
+- ⚠️ **Parakeet config error** - `keyNotFound: preprocessor` - Model format mismatch
+- ⚠️ **Qwen3ASR 404 error** - Repository not found (may be gated or renamed)
+- 📝 **Model compatibility issues** - Need to find models matching mlx-audio-swift expected format
+- 📝 **Next steps** - Check mlx-audio-swift GitHub for tested model versions, or try local model files
 
 ### Available Modules (from build output)
 - `MLXAudioSTT` - Speech-to-text (Whisper, Parakeet, Qwen3ASR, etc.)
