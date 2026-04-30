@@ -1,8 +1,8 @@
 # MLX Audio Integration Guide
 
-## Status: Implementation Complete, Dependencies Pending
+## Status: ✅ FULLY ENABLED
 
-The `MLXWhisperBackend` has been fully implemented and integrated into the OpenOats codebase, but **MLX dependencies are temporarily disabled** due to Swift Package Manager version conflicts.
+The `MLXWhisperBackend` has been fully implemented, integrated, and **is now active** in the OpenOats codebase. The dependency conflict has been resolved.
 
 ## What's Been Done
 
@@ -27,53 +27,57 @@ The `MLXWhisperBackend` has been fully implemented and integrated into the OpenO
    - Tested on M4 Pro with Metal GPU
    - Models moved to external drive (`/Volumes/Drive/mlx-models/`)
 
-## Dependency Conflict
+## Dependency Conflict - RESOLVED ✅
 
 ### The Problem
 
 ```
-WhisperKit 0.17.0 depends on swift-transformers 1.1.6..<1.2.0
+WhisperKit 0.17.0 depends on swift-transformers 1.1.x
 mlx-audio-swift depends on mlx-swift-lm 2.30.3..<3.0.0
-mlx-swift-lm depends on swift-transformers 1.2.0..<1.3.0
+mlx-swift-lm 2.31.x depends on swift-transformers 1.2.0..<1.3.0
 ```
 
-**Result:** Cannot satisfy both dependencies simultaneously.
+**Result:** Version conflict between swift-transformers 1.1.x and 1.2.x requirements.
 
-### Resolution Options
+### The Solution
 
-#### Option 1: Wait for Upstream Updates (Recommended)
-- WhisperKit may update to support swift-transformers 1.2.x
-- mlx-audio-swift may relax version constraints
-- Monitor both repositories for updates
+Use **mlx-swift-lm 2.30.3** which depends on **mlx-swift 0.30.x** instead of swift-transformers 1.2.x:
 
-#### Option 2: Fork and Patch
-- Fork WhisperKit and update swift-transformers dependency
-- Test compatibility with swift-transformers 1.2.x
-- Use forked version in Package.swift
+```swift
+// Package.swift
+.package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.30.6"),
+.package(url: "https://github.com/ml-explore/mlx-swift-lm.git", exact: "2.30.3"),
+.package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", exact: "0.1.0"),
+```
 
-#### Option 3: Conditional Compilation
-- Use `#if canImport(MLX)` to make MLX optional
-- Users without MLX dependencies can still build
-- Advanced users can enable MLX via build flags
+**Why this works:**
+- mlx-swift-lm 2.30.3 depends on mlx-swift 0.30.x (not swift-transformers)
+- This avoids the swift-transformers 1.2.x requirement entirely
+- Both WhisperKit and MLX Audio can use swift-transformers 1.1.x
 
-#### Option 4: Separate Target
-- Create separate `OpenOatsMLX` target with MLX dependencies
-- Main app uses WhisperKit
-- MLX extension available as optional add-on
+### Trade-offs
 
-## How to Enable MLX (When Ready)
+- Using slightly older mlx-swift (0.30.6 vs 0.31.3) - but still fully functional
+- Need to pin specific versions instead of using `from:`
+- May need to update manually when new compatible versions are released
 
-### Step 1: Uncomment Dependencies in Package.swift
+## Current Configuration
+
+MLX is **already enabled** in the project. The dependencies are configured as follows:
+
+### Package.swift
 
 ```swift
 dependencies: [
     // ... existing dependencies ...
-    .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.31.0"),
-    .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", from: "0.1.0"),
+    // MLX Audio for local GPU-accelerated transcription
+    .package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.30.6"),
+    .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", exact: "2.30.3"),
+    .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", exact: "0.1.0"),
 ],
 ```
 
-### Step 2: Add Products to Target
+### Target Configuration
 
 ```swift
 .target(
@@ -87,15 +91,11 @@ dependencies: [
 ),
 ```
 
-### Step 3: Uncomment MLX Code in MLXWhisperBackend.swift
-
-Remove the `#if ENABLE_MLX` guards and uncomment the actual implementation.
-
-### Step 4: Build and Test
+### Build
 
 ```bash
 cd OpenOats
-swift build
+swift build --target OpenOatsKit
 ```
 
 ## Performance Characteristics
