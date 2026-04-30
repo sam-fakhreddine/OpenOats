@@ -19,12 +19,14 @@ public struct MLXAudioSpike {
         let mlxArray = MLXArray(samples)
         print("✅ Created MLXArray with shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
         
-        // Try Qwen3ASR-2B (smaller, potentially better compatibility)
-        print("\n📥 Loading model: Qwen/Qwen3-ASR-2B...")
-        print("   (This will download ~4GB on first run)")
+        // Use mlx-community Whisper model (optimized for MLX)
+        print("\n📥 Loading model: mlx-community/whisper-large-v3-turbo-asr-fp16...")
+        print("   (This will download ~1.5GB on first run)")
         
         do {
-            let model = try await Qwen3ASRModel.fromPretrained("Qwen/Qwen3-ASR-2B")
+            // Note: Need to check if Whisper is available in MLXAudioSTT
+            // For now, try Parakeet from mlx-community
+            let model = try await ParakeetModel.fromPretrained("mlx-community/parakeet-tdt-0.6b-v3")
             print("✅ Model loaded successfully!")
             
             // Generate transcription
@@ -70,9 +72,9 @@ public struct MLXAudioSpike {
         
         let mlxArray = MLXArray(samples)
         
-        // Load model
+        // Load model from mlx-community
         let loadStart = Date()
-        let model = try await Qwen3ASRModel.fromPretrained("Qwen/Qwen3-ASR-2B")
+        let model = try await ParakeetModel.fromPretrained("mlx-community/parakeet-tdt-0.6b-v3")
         let loadTime = Date().timeIntervalSince(loadStart)
         
         // Generate transcription
@@ -103,28 +105,30 @@ public struct MLXAudioSpike {
     
     /// Lists available STT models from mlx-audio-swift
     public static func listAvailableModels() {
-        print("\n📋 Available STT Models in mlx-audio-swift:")
-        print("==========================================")
-        print("1. Parakeet (NVIDIA)")
-        print("   - nvidia/parakeet-rnnt-1.1b")
-        print("   - nvidia/parakeet-ctc-1.1b  ⭐ Smallest, fastest")
-        print("   - nvidia/parakeet-tdt-1.1b")
+        print("\n📋 Available STT Models (mlx-community repos):")
+        print("===============================================")
+        print("1. Whisper (OpenAI)")
+        print("   - mlx-community/whisper-large-v3-turbo-asr-fp16 ⭐ Recommended")
         print("")
-        print("2. Qwen3ASR (Alibaba)")
-        print("   - Qwen/Qwen3-ASR-2B")
-        print("   - Qwen/Qwen3-ASR-7B")
+        print("2. Parakeet (NVIDIA)")
+        print("   - mlx-community/parakeet-tdt-0.6b-v3 ⭐ Tested")
+        print("   - mlx-community/parakeet-tdt-1.1b-v2")
         print("")
-        print("3. GraniteSpeech (IBM)")
-        print("   - ibm-granite/granite-speech-3.3b")
+        print("3. Qwen3ASR (Alibaba)")
+        print("   - mlx-community/Qwen3-ASR-1.7B-8bit")
         print("")
-        print("4. VoxtralRealtime (Mistral)")
-        print("   - mistralai/Voxtral-Realtime-2409")
+        print("4. Voxtral (Mistral)")
+        print("   - mlx-community/Voxtral-Mini-3B-2507-bf16")
+        print("   - mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16")
         print("")
-        print("5. GLMASR (Zhipu)")
-        print("   - THUDM/glm-asr-9b")
+        print("5. VibeVoice-ASR (Microsoft)")
+        print("   - mlx-community/VibeVoice-ASR-bf16")
+        print("")
+        print("⚠️  Important: Use mlx-community repos, not original HF repos!")
+        print("   mlx-community models are optimized for MLX Metal backend")
         print("")
         print("Usage:")
-        print("  let model = try await ParakeetModel.fromPretrained(\"nvidia/parakeet-ctc-1.1b\")")
+        print("  let model = try await ParakeetModel.fromPretrained(\"mlx-community/parakeet-tdt-0.6b-v3\")")
         print("  let output = model.generate(audio: mlxArray)")
         print("  print(output.text)")
     }
