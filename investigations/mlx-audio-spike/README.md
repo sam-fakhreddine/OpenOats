@@ -162,6 +162,26 @@ let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
 This investigation feeds into **G1: MLX Audio API Validation** decision gate.
 See SIMPLIFIED_WORKFLOW.md for gate criteria.
 
+## Model Storage Location
+
+Models are stored on external drive to save space on main drive:
+
+```
+/Volumes/Drive/mlx-models/                    # Actual storage
+~/.cache/huggingface/hub/mlx-audio -> /Volumes/Drive/mlx-models  # Symlink
+```
+
+**Models currently stored:**
+- `mlx-community_GLM-ASR-Nano-2512-4bit` (1.2GB) - Primary test model, 4-bit quantized
+- `mlx-community_parakeet-tdt-0.6b-v3` (2.3GB) - Fast, lightweight
+- `mlx-community_Qwen3-ASR-1.7B-8bit` (2.3GB) - 8-bit quantized
+- `mlx-community_Voxtral-Mini-4B-Realtime-2602-fp16` (8.3GB) - High quality
+- `nvidia_parakeet-ctc-1.1b` (4.0GB) - CTC model
+
+**Total:** ~18GB on external drive
+
+The symlink ensures MLX Audio library continues to find models at the expected cache location while the actual data resides on the external drive.
+
 ## Next Steps
 
 1. Resolve mlx-audio-swift dependencies
