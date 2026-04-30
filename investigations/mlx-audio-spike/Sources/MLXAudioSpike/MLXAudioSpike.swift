@@ -19,13 +19,13 @@ public struct MLXAudioSpike {
         let mlxArray = MLXArray(samples)
         print("✅ Created MLXArray with shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
         
-        // Use high-quality GraniteSpeech model (IBM's 3.3B - better quality!)
-        print("\n📥 Loading model: ibm-granite/granite-speech-3.3b...")
-        print("   (This will download ~6GB on first run - quality model for M4 Pro!)")
+        // Try GLMASR - 9B model we haven't tested yet
+        print("\n📥 Loading model: mlx-community/GLM-ASR-Nano-2512-4bit...")
+        print("   (Quantized 4bit - smaller, faster, good quality!)")
         
         do {
-            // GraniteSpeech 3.3B - IBM's quality model
-            let model = try await GraniteSpeechModel.fromPretrained("ibm-granite/granite-speech-3.3b")
+            // GLMASR - 9B model with 4bit quantization
+            let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
             print("✅ Model loaded successfully!")
             
             // Generate transcription
