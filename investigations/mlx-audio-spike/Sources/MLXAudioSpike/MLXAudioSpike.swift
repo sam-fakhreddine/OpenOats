@@ -19,12 +19,12 @@ public struct MLXAudioSpike {
         let mlxArray = MLXArray(samples)
         print("✅ Created MLXArray with shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
         
-        // Try to load a small model (Parakeet CTC is smallest)
-        print("\n📥 Loading model: nvidia/parakeet-ctc-1.1b...")
-        print("   (This will download ~2GB on first run)")
+        // Try Qwen3ASR-2B (smaller, potentially better compatibility)
+        print("\n📥 Loading model: Qwen/Qwen3-ASR-2B...")
+        print("   (This will download ~4GB on first run)")
         
         do {
-            let model = try await ParakeetModel.fromPretrained("nvidia/parakeet-ctc-1.1b")
+            let model = try await Qwen3ASRModel.fromPretrained("Qwen/Qwen3-ASR-2B")
             print("✅ Model loaded successfully!")
             
             // Generate transcription
@@ -72,7 +72,7 @@ public struct MLXAudioSpike {
         
         // Load model
         let loadStart = Date()
-        let model = try await ParakeetModel.fromPretrained("nvidia/parakeet-ctc-1.1b")
+        let model = try await Qwen3ASRModel.fromPretrained("Qwen/Qwen3-ASR-2B")
         let loadTime = Date().timeIntervalSince(loadStart)
         
         // Generate transcription
