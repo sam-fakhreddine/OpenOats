@@ -511,6 +511,112 @@ public struct MLXAudioSpike {
         print("🎯 Target WER for production: <5% on clean speech")
         print("🎯 Target WER for meetings: <15% with background noise")
     }
+    
+    // MARK: - Extended Benchmarking
+    
+    /// LibriSpeech test samples with ground truth
+    public static let librispeechTests: [(file: String, groundTruth: String)] = [
+        ("test_data/librispeech_0000.wav", "SHORTLY AFTER PASSING ONE OF THESE CHAPELS WE CAME SUDDENLY UPON A VILLAGE WHICH STARTED UP OUT OF THE MIST AND I WAS ALARMED LEST I SHOULD BE MADE AN OBJECT OF CURIOSITY OR DISLIKE"),
+        ("test_data/librispeech_0001.wav", "MY GUIDES HOWEVER WERE WELL KNOWN AND THE NATURAL POLITENESS OF THE PEOPLE PREVENTED THEM FROM PUTTING ME TO ANY INCONVENIENCE BUT THEY COULD NOT HELP EYEING ME NOR I THEM"),
+        ("test_data/librispeech_0002.wav", "THE STREETS WERE NARROW AND UNPAVED BUT VERY FAIRLY CLEAN"),
+        ("test_data/librispeech_0003.wav", "THE VINE GREW OUTSIDE MANY OF THE HOUSES AND THERE WERE SOME WITH SIGN BOARDS ON WHICH WAS PAINTED A BOTTLE AND A GLASS THAT MADE ME FEEL MUCH AT HOME"),
+        ("test_data/librispeech_0004.wav", "EVEN ON THIS LEDGE OF HUMAN SOCIETY THERE WAS A STUNTED GROWTH OF SHOPLETS WHICH HAD TAKEN ROOT AND VEGETATED SOMEHOW THOUGH AS IN AN AIR MERCANTILE OF THE BLEAKEST"),
+        ("test_data/librispeech_0005.wav", "EACH FEATURE WAS FINISHED EYELIDS EYELASHES AND EARS BEING ALMOST INVARIABLY PERFECT")
+    ]
+    
+    /// Run extended LibriSpeech benchmark
+    public static func runExtendedBenchmark() async throws {
+        print("\n🔬 Extended LibriSpeech Benchmark")
+        print("==================================")
+        print("Testing \(librispeechTests.count) samples from LibriSpeech dev-clean")
+        print("Model: GLMASR 9B (4bit quantized)")
+        print("")
+        
+        // Load model once
+        print("📥 Loading GLMASR 9B (4bit) model...")
+        let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
+        print("✅ Model loaded!\n")
+        
+        var results: [(file: String, wer: Double, rtf: Double, duration: Double)] = []
+        var totalWER: Double = 0
+        var totalRTF: Double = 0
+        var totalDuration: Double = 0
+        
+        for (index, test) in librispeechTests.enumerated() {
+            print("[Sample \(index + 1)/\(librispeechTests.count)] \(test.file)")
+            
+            do {
+                // Load audio
+                let samples = try loadAudioFile(test.file)
+                let mlxArray = MLXArray(samples)
+                let duration = Double(samples.count) / 16000.0
+                
+                // Transcribe
+                let startTime = Date()
+                let output = model.generate(audio: mlxArray)
+                let inferenceTime = Date().timeIntervalSince(startTime)
+                let rtf = inferenceTime / duration
+                
+                // Calculate WER
+                let wer = calculateWER(reference: test.groundTruth, hypothesis: output.text)
+                
+                results.append((test.file, wer, rtf, duration))
+                totalWER += wer
+                totalRTF += rtf
+                totalDuration += duration
+                
+                print("   Duration: \(String(format: "%.2f", duration))s | RTF: \(String(format: "%.3f", rtf)) | WER: \(String(format: "%.1f", wer * 100))%")
+                print("   Transcription: \"\(output.text)\"")
+                print("")
+            } catch {
+                print("   ❌ Error: \(error)\n")
+            }
+        }
+        
+        // Summary
+        let count = Double(results.count)
+        let avgWER = totalWER / count
+        let avgRTF = totalRTF / count
+        let avgDuration = totalDuration / count
+        
+        print("\n📊 Extended Benchmark Summary")
+        print("==============================")
+        print("Samples tested: \(results.count)")
+        print("Average WER: \(String(format: "%.1f", avgWER * 100))%")
+        print("Average RTF: \(String(format: "%.3f", avgRTF))")
+        print("Average audio duration: \(String(format: "%.2f", avgDuration))s")
+        print("Total audio duration: \(String(format: "%.2f", totalDuration))s")
+        
+        // Quality assessment
+        print("\n🎯 Quality Assessment:")
+        if avgWER == 0 {
+            print("   🏆 PERFECT - All samples transcribed flawlessly!")
+        } else if avgWER < 0.05 {
+            print("   ✅ EXCELLENT - Meets production target (<5% WER)")
+        } else if avgWER < 0.15 {
+            print("   ⚠️  ACCEPTABLE - Good for meetings (<15% WER)")
+        } else {
+            print("   ❌ NEEDS IMPROVEMENT - High error rate")
+        }
+        
+        if avgRTF < 0.3 {
+            print("   ✅ REAL-TIME READY - RTF \(String(format: "%.3f", avgRTF)) < 0.3")
+        } else {
+            print("   ⚠️  SLOW - RTF \(String(format: "%.3f", avgRTF)) >= 0.3")
+        }
+        
+        // Per-sample breakdown
+        print("\n📋 Per-Sample Results:")
+        print("File                | Duration | RTF   | WER")
+        print("--------------------|----------|-------|------")
+        for result in results {
+            let file = result.file.replacingOccurrences(of: "test_data/", with: "").padding(toLength: 19, withPad: " ", startingAt: 0)
+            let dur = String(format: "%.2f", result.duration).padding(toLength: 8, withPad: " ", startingAt: 0)
+            let rtf = String(format: "%.3f", result.rtf).padding(toLength: 5, withPad: " ", startingAt: 0)
+            let wer = String(format: "%.1f%%", result.wer * 100).padding(toLength: 4, withPad: " ", startingAt: 0)
+            print("\(file)| \(dur)s | \(rtf) | \(wer)")
+        }
+    }
 }
 
 /// Performance metrics structure

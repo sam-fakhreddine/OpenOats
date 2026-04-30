@@ -12,6 +12,8 @@ import Foundation
 ///   MLXAudioTest                    # Run all tests
 ///   MLXAudioTest <audio_file.wav>   # Test with specific audio file
 ///   MLXAudioTest --harvard          # Run Harvard Sentences test
+///   MLXAudioTest --librispeech      # Run single LibriSpeech test
+///   MLXAudioTest --extended         # Run extended LibriSpeech benchmark (6 samples)
 ///   MLXAudioTest --benchmarks       # Show benchmark info
 @main
 struct MLXAudioTest {
@@ -51,6 +53,13 @@ struct MLXAudioTest {
                 print("📝 Transcription: \"\(result)\"")
             } catch {
                 print("\n⚠️ LibriSpeech test: \(error)")
+            }
+        } else if args.contains("--extended") {
+            print("\n[Test 2] Extended LibriSpeech Benchmark...")
+            do {
+                try await MLXAudioSpike.runExtendedBenchmark()
+            } catch {
+                print("\n⚠️ Extended benchmark: \(error)")
             }
         } else {
             print("\n[Test 2] Real audio transcription with GLMASR 9B...")
