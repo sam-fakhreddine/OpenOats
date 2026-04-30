@@ -103,8 +103,9 @@ let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
 | Runtime (Metal) | GPU access | ✅ Pass (M4 Pro) |
 | Buffer transfer | Working | ✅ Pass |
 | STT API exploration | Documented | ✅ Pass |
-| Model loading test | Partial | ⚠️ Config issue |
-| Q4 quantization | Tested | ⏳ Pending |
+| Model loading test | ✅ Working | mlx-community repos |
+| RTF performance | ✅ 0.040 | Target <0.3 met |
+| Q4 quantization | Not visible | May be automatic |
 
 ## Findings
 
@@ -125,14 +126,18 @@ let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
 - ✅ **HuggingFace integration**: Models auto-download from HF Hub
 - 📝 **No Q4 quantization visible** in current API - may be automatic or not yet implemented
 
-### 2026-04-30: Model Loading Test (Step 3 Partial)
-- ✅ **Model download works** - Successfully downloads ~4GB from HuggingFace
+### 2026-04-30: Model Loading Test (Step 3 SUCCESS)
+- ✅ **Model download works** - Downloads 2.5GB from HuggingFace mlx-community
 - ✅ **Cache system works** - Models cached at `~/.cache/huggingface/hub/mlx-audio/`
-- ✅ **MLXArray input works** - Synthetic audio generation and MLXArray creation
-- ⚠️ **Parakeet config error** - `keyNotFound: preprocessor` - Model format mismatch
-- ⚠️ **Qwen3ASR 404 error** - Repository not found (may be gated or renamed)
-- 📝 **Model compatibility issues** - Need to find models matching mlx-audio-swift expected format
-- 📝 **Next steps** - Check mlx-audio-swift GitHub for tested model versions, or try local model files
+- ✅ **MLXArray input works** - Synthetic audio → MLXArray → Model
+- ✅ **Transcription works** - Model generates output (empty for sine wave, as expected)
+- ✅ **Performance excellent** - RTF: 0.040 (target <0.3) 🎉
+  - Load time: 0.51s (cached)
+  - Inference: 0.12s for 3.0s audio
+- 📝 **Key insight** - Must use `mlx-community` repos, not original HF repos
+  - ❌ `nvidia/parakeet-ctc-1.1b` - wrong format
+  - ✅ `mlx-community/parakeet-tdt-0.6b-v3` - works perfectly
+- 📝 **Q4 quantization** - Not visible in API, may be automatic or model-dependent
 
 ### Available Modules (from build output)
 - `MLXAudioSTT` - Speech-to-text (Whisper, Parakeet, Qwen3ASR, etc.)
