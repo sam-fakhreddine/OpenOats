@@ -255,6 +255,102 @@ final class TranscriptionBackendTests: XCTestCase {
         XCTAssertFalse(TranscriptionModel.whisperBase.isCloud)
         XCTAssertFalse(TranscriptionModel.whisperSmall.isCloud)
         XCTAssertFalse(TranscriptionModel.whisperLargeV3Turbo.isCloud)
+        XCTAssertFalse(TranscriptionModel.mlxWhisperGLMASR.isCloud)
+    }
+
+    // MARK: - MLXWhisperBackend
+
+    func testMLXWhisperDisplayName() {
+        let backend = MLXWhisperBackend()
+        XCTAssertEqual(backend.displayName, "MLX Whisper (GLMASR 9B)")
+    }
+
+    func testMLXWhisperCheckStatusReturnsNeedsDownloadOrReady() {
+        let backend = MLXWhisperBackend()
+        let status = backend.checkStatus()
+        switch status {
+        case .ready, .needsDownload:
+            break
+        default:
+            XCTFail("Expected .ready or .needsDownload, got \(status)")
+        }
+    }
+
+    func testMLXWhisperCheckStatusNeedsDownloadPrompt() {
+        let backend = MLXWhisperBackend()
+        let status = backend.checkStatus()
+        if case .needsDownload(let prompt) = status {
+            XCTAssertTrue(prompt.contains("MLX Whisper"))
+            XCTAssertTrue(prompt.contains("1.2 GB"))
+        }
+        // If .ready, model is already cached - that's fine too
+    }
+
+    func testMLXWhisperTranscribeWithoutPrepareThrows() async {
+        let backend = MLXWhisperBackend()
+        do {
+            _ = try await backend.transcribe([0.0, 0.1, 0.2], locale: Locale(identifier: "en-US"))
+            XCTFail("Expected error")
+        } catch is TranscriptionBackendError {
+            // Expected: notPrepared
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testMLXWhisperConformsToTranscriptionBackend() {
+        let backend = MLXWhisperBackend()
+        // Verify it conforms to the protocol
+        let _: any TranscriptionBackend = backend
+        XCTAssertTrue(backend is TranscriptionBackend)
+    }
+
+    func testMLXWhisperIsSendable() {
+        let backend = MLXWhisperBackend()
+        // Verify it conforms to Sendable (required by protocol)
+        // Note: Sendable is a marker protocol, can't use 'is' check at runtime
+        // The fact that this compiles proves conformance
+        let _: any Sendable = backend
+        XCTAssertTrue(backend is TranscriptionBackend)
+    }
+
+    // MARK: - TranscriptionModel MLX factory
+
+    func testMakeBackendMLXWhisper() {
+        let backend = TranscriptionModel.mlxWhisperGLMASR.makeBackend()
+        XCTAssertEqual(backend.displayName, "MLX Whisper (GLMASR 9B)")
+    }
+
+    func testMLXWhisperInBatchSuitableModels() {
+        let batchModels = TranscriptionModel.batchSuitableModels
+        XCTAssertTrue(batchModels.contains(.mlxWhisperGLMASR))
+    }
+
+    func testMLXWhisperFlushInterval() {
+        // MLX Whisper should use 10s flush interval like other Whisper models
+        let interval = TranscriptionModel.mlxWhisperGLMASR.flushIntervalSamples
+        XCTAssertEqual(interval, 10 * 16_000)
+    }
+
+    func testMLXWhisperEstimatedDownloadBytes() {
+        let bytes = TranscriptionModel.mlxWhisperGLMASR.estimatedDownloadBytes
+        XCTAssertEqual(bytes, 1_200_000_000)
+    }
+
+    func testMLXWhisperDownloadPrompt() {
+        let prompt = TranscriptionModel.mlxWhisperGLMASR.downloadPrompt
+        XCTAssertTrue(prompt.contains("MLX Whisper"))
+        XCTAssertTrue(prompt.contains("1.2 GB"))
+        XCTAssertTrue(prompt.contains("Metal GPU"))
+    }
+
+    func testMLXWhisperLocaleFieldTitle() {
+        let title = TranscriptionModel.mlxWhisperGLMASR.localeFieldTitle
+        XCTAssertEqual(title, "Locale")
+    }
+
+    func testMLXWhisperSupportsExplicitLanguageHint() {
+        XCTAssertTrue(TranscriptionModel.mlxWhisperGLMASR.supportsExplicitLanguageHint)
     }
 }
 

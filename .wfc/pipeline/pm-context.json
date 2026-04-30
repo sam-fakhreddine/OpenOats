@@ -1,0 +1,27 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-pm",
+  "to_skill": "wfc-ba",
+  "step": "triage",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {"machine": ".wfc/pipeline/pm-context.json"},
+  "payload": {
+    "request": "Create investigations/mlx-audio-spike/ directory with Package.swift for MLX audio investigation",
+    "goals": [
+      "Set up investigation workspace for MLX audio capabilities",
+      "Create Package.swift with appropriate MLX dependencies",
+      "Establish foundation for audio processing spike/prototype"
+    ],
+    "constraints": [
+      "Use swift-tools-version compatible with existing project (6.2)",
+      "Target macOS 15 platform",
+      "Include MLX and MLXAudio dependencies from GitHub"
+    ],
+    "auto_proceed": true,
+    "max_iterations": 3,
+    "session_id": "run-20260430-mlx-audio",
+    "requested_outcome": " investigations/mlx-audio-spike/ directory with working Package.swift"
+  }
+}

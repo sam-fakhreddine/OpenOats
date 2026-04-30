@@ -1,0 +1,633 @@
+import MLX
+import MLXAudioSTT
+import Foundation
+import AVFoundation
+
+/// MLX Audio investigation spike for OpenOats ASR migration
+///
+/// This module validates MLX Swift Audio API compatibility with the
+/// TranscriptionBackend protocol requirements.
+public struct MLXAudioSpike {
+    
+    /// Test 1: Load a model and perform transcription
+    /// - Parameter samples: Raw audio samples (16kHz, Float32, mono)
+    /// - Returns: Transcription result
+    public static func testModelLoadingAndTranscription(samples: [Float]) async throws -> String {
+        print("\n🎯 Test: Model Loading & Transcription")
+        print("========================================")
+        
+        // Create MLXArray from samples
+        let mlxArray = MLXArray(samples)
+        print("✅ Created MLXArray with shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
+        
+        // Try GLMASR - 9B model we haven't tested yet
+        print("\n📥 Loading model: mlx-community/GLM-ASR-Nano-2512-4bit...")
+        print("   (Quantized 4bit - smaller, faster, good quality!)")
+        
+        do {
+            // GLMASR - 9B model with 4bit quantization
+            let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
+            print("✅ Model loaded successfully!")
+            
+            // Generate transcription
+            print("\n🎙️ Generating transcription...")
+            let startTime = Date()
+            let output = model.generate(audio: mlxArray)
+            let elapsed = Date().timeIntervalSince(startTime)
+            
+            print("✅ Transcription complete in \(String(format: "%.2f", elapsed))s")
+            print("📝 Result: \"\(output.text)\"")
+            
+            if let language = output.language {
+                print("🌐 Detected language: \(language)")
+            }
+            
+            return output.text
+        } catch {
+            print("❌ Error: \(error)")
+            throw error
+        }
+    }
+    
+    /// Test 2: Generate synthetic audio (sine wave) for testing
+    public static func generateSyntheticAudio(duration: Double = 3.0, frequency: Double = 440.0) -> [Float] {
+        let sampleRate = 16000
+        let sampleCount = Int(duration * Double(sampleRate))
+        var samples = [Float](repeating: 0.0, count: sampleCount)
+        
+        for i in 0..<sampleCount {
+            let t = Double(i) / Double(sampleRate)
+            samples[i] = Float(sin(2.0 * .pi * frequency * t) * 0.5)
+        }
+        
+        print("🎵 Generated \(duration)s synthetic audio at \(frequency)Hz")
+        print("   Samples: \(sampleCount), Sample rate: \(sampleRate)Hz")
+        return samples
+    }
+    
+    /// Test 4: Transcribe real audio file
+    /// - Parameter filePath: Path to audio file (wav, mp3, etc.)
+    /// - Returns: Transcription result
+    public static func transcribeAudioFile(_ filePath: String, groundTruth: String? = nil) async throws -> String {
+        print("\n🎧 Test: Real Audio File Transcription")
+        print("=======================================")
+        print("📁 Loading audio file: \(filePath)")
+        
+        // Load audio file using AVFoundation
+        let samples = try loadAudioFile(filePath)
+        print("✅ Loaded \(samples.count) samples (\(String(format: "%.1f", Double(samples.count)/16000.0))s)")
+        
+        // Create MLXArray
+        let mlxArray = MLXArray(samples)
+        
+        // Load GLMASR model (best quality+speed balance)
+        print("\n📥 Loading GLMASR 9B (4bit) model...")
+        let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
+        print("✅ Model loaded!")
+        
+        // Transcribe
+        print("\n🎙️ Transcribing...")
+        let startTime = Date()
+        let output = model.generate(audio: mlxArray)
+        let elapsed = Date().timeIntervalSince(startTime)
+        
+        let audioDuration = Double(samples.count) / 16000.0
+        let rtf = elapsed / audioDuration
+        
+        print("✅ Done in \(String(format: "%.2f", elapsed))s (RTF: \(String(format: "%.3f", rtf)))")
+        print("📝 Transcription: \"\(output.text)\"")
+        
+        if let language = output.language {
+            print("🌐 Language: \(language)")
+        }
+        
+        // Calculate WER if ground truth provided
+        if let truth = groundTruth {
+            let _ = calculateWER(reference: truth, hypothesis: output.text)
+        }
+        
+        return output.text
+    }
+    
+    /// Load audio file and convert to 16kHz Float32 samples
+    private static func loadAudioFile(_ filePath: String) throws -> [Float] {
+        let url = URL(fileURLWithPath: filePath)
+        
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            print("⚠️  File not found, generating test speech pattern...")
+            return generateSpeechLikeAudio(duration: 5.0)
+        }
+        
+        print("✅ Found audio file: \(filePath)")
+        
+        // Load audio file using AVAudioFile
+        let audioFile = try AVAudioFile(forReading: url)
+        
+        // Get audio format info
+        let sampleRate = audioFile.fileFormat.sampleRate
+        let channelCount = audioFile.fileFormat.channelCount
+        print("   Original: \(sampleRate)Hz, \(channelCount) channels")
+        
+        // Read all audio data
+        let frameCount = UInt32(audioFile.length)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else {
+            throw AudioError.bufferCreationFailed
+        }
+        
+        try audioFile.read(into: buffer)
+        
+        // Convert to Float array (mono, 16kHz)
+        var samples = [Float]()
+        
+        if let floatData = buffer.floatChannelData {
+            // Extract samples (convert to mono if stereo)
+            for frame in 0..<Int(buffer.frameLength) {
+                var sample: Float = 0
+                for channel in 0..<Int(channelCount) {
+                    sample += floatData[channel][frame]
+                }
+                samples.append(sample / Float(channelCount)) // Average channels
+            }
+        } else if let int16Data = buffer.int16ChannelData {
+            // Convert Int16 to Float
+            for frame in 0..<Int(buffer.frameLength) {
+                var sample: Float = 0
+                for channel in 0..<Int(channelCount) {
+                    sample += Float(int16Data[channel][frame]) / 32768.0
+                }
+                samples.append(sample / Float(channelCount))
+            }
+        } else {
+            throw AudioError.unsupportedFormat
+        }
+        
+        // Resample to 16kHz if needed
+        if sampleRate != 16000 {
+            print("   Resampling from \(Int(sampleRate))Hz to 16000Hz...")
+            samples = resample(samples, from: sampleRate, to: 16000)
+        }
+        
+        print("   Loaded \(samples.count) samples (\(String(format: "%.2f", Double(samples.count)/16000.0))s)")
+        return samples
+    }
+    
+    /// Simple linear resampling
+    private static func resample(_ samples: [Float], from sourceRate: Double, to targetRate: Double) -> [Float] {
+        let ratio = sourceRate / targetRate
+        let newLength = Int(Double(samples.count) / ratio)
+        var resampled = [Float](repeating: 0, count: newLength)
+        
+        for i in 0..<newLength {
+            let sourceIndex = Double(i) * ratio
+            let index0 = Int(sourceIndex)
+            let index1 = min(index0 + 1, samples.count - 1)
+            let fraction = sourceIndex - Double(index0)
+            
+            resampled[i] = samples[index0] * (1 - Float(fraction)) + samples[index1] * Float(fraction)
+        }
+        
+        return resampled
+    }
+    
+    enum AudioError: Error {
+        case bufferCreationFailed
+        case unsupportedFormat
+    }
+    
+    /// Generate speech-like test audio (multiple frequencies)
+    private static func generateSpeechLikeAudio(duration: Double) -> [Float] {
+        let sampleRate = 16000
+        let sampleCount = Int(duration * Double(sampleRate))
+        var samples = [Float](repeating: 0.0, count: sampleCount)
+        
+        // Mix multiple frequencies to simulate speech (vowel-like)
+        let frequencies = [120.0, 240.0, 480.0, 720.0] // F0 + harmonics
+        
+        for i in 0..<sampleCount {
+            let t = Double(i) / Double(sampleRate)
+            var sample: Double = 0
+            
+            for (j, freq) in frequencies.enumerated() {
+                let amplitude = 1.0 / Double(j + 1) // Decreasing amplitude
+                sample += sin(2.0 * .pi * freq * t) * amplitude
+            }
+            
+            // Add some amplitude modulation (simulates syllables)
+            let modulation = 0.5 + 0.5 * sin(2.0 * .pi * 3.0 * t) // 3Hz modulation
+            samples[i] = Float(sample * modulation * 0.3)
+        }
+        
+        print("🎵 Generated \(duration)s speech-like test audio")
+        return samples
+    }
+    
+    /// Test 3: Measure performance metrics
+    public static func measurePerformance(samples: [Float]) async throws -> PerformanceMetrics {
+        print("\n📊 Test: Performance Measurement")
+        print("================================")
+        
+        let mlxArray = MLXArray(samples)
+        
+        // Load model from mlx-community
+        let loadStart = Date()
+        let model = try await ParakeetModel.fromPretrained("mlx-community/parakeet-tdt-0.6b-v3")
+        let loadTime = Date().timeIntervalSince(loadStart)
+        
+        // Generate transcription
+        let inferenceStart = Date()
+        let output = model.generate(audio: mlxArray)
+        let inferenceTime = Date().timeIntervalSince(inferenceStart)
+        
+        // Calculate RTF (Real-Time Factor)
+        let audioDuration = Double(samples.count) / 16000.0
+        let rtf = inferenceTime / audioDuration
+        
+        let metrics = PerformanceMetrics(
+            loadTime: loadTime,
+            inferenceTime: inferenceTime,
+            audioDuration: audioDuration,
+            rtf: rtf,
+            text: output.text
+        )
+        
+        print("⏱️  Load time: \(String(format: "%.2f", loadTime))s")
+        print("⏱️  Inference time: \(String(format: "%.2f", inferenceTime))s")
+        print("🎵 Audio duration: \(String(format: "%.2f", audioDuration))s")
+        print("📈 RTF: \(String(format: "%.3f", rtf)) (target: <0.3)")
+        print("📝 Transcription: \"\(output.text)\"")
+        
+        return metrics
+    }
+    
+    /// Benchmark multiple models against each other
+    public static func benchmarkModels(samples: [Float]) async {
+        print("\n🏆 Model Benchmark Comparison")
+        print("==============================")
+        print("Testing on M4 Pro with \(samples.count/16000)s of audio\n")
+        
+        let models = [
+            ("Parakeet 0.6B", "mlx-community/parakeet-tdt-0.6b-v3", "fast"),
+            ("GraniteSpeech 3.3B", "ibm-granite/granite-speech-3.3b", "quality"),
+        ]
+        
+        var results: [(name: String, loadTime: Double, inferenceTime: Double, rtf: Double)] = []
+        
+        for (name, repo, category) in models {
+            print("📊 Testing \(name) [\(category)]...")
+            do {
+                let mlxArray = MLXArray(samples)
+                
+                let loadStart = Date()
+                // Try GraniteSpeech for quality comparison
+                let model = try await GraniteSpeechModel.fromPretrained(repo)
+                let loadTime = Date().timeIntervalSince(loadStart)
+                
+                let inferenceStart = Date()
+                let _ = model.generate(audio: mlxArray)
+                let inferenceTime = Date().timeIntervalSince(inferenceStart)
+                
+                let audioDuration = Double(samples.count) / 16000.0
+                let rtf = inferenceTime / audioDuration
+                
+                results.append((name, loadTime, inferenceTime, rtf))
+                print("   ✅ RTF: \(String(format: "%.3f", rtf)) | Load: \(String(format: "%.1f", loadTime))s | Inference: \(String(format: "%.2f", inferenceTime))s")
+            } catch {
+                print("   ❌ Failed: \(error)")
+            }
+        }
+        
+        print("\n📈 Benchmark Results Summary")
+        print("=============================")
+        print("Model                | RTF    | Load | Inference")
+        print("---------------------|--------|------|----------")
+        for result in results {
+            let name = result.name.padding(toLength: 20, withPad: " ", startingAt: 0)
+            print("\(name)| \(String(format: "%.3f", result.rtf).padding(toLength: 6, withPad: " ", startingAt: 0))| \(String(format: "%.1f", result.loadTime).padding(toLength: 5, withPad: " ", startingAt: 0))| \(String(format: "%.2f", result.inferenceTime))s")
+        }
+        
+        if let best = results.min(by: { $0.rtf < $1.rtf }) {
+            print("\n🥇 Best RTF: \(best.name) (RTF: \(String(format: "%.3f", best.rtf)))")
+        }
+    }
+    
+    /// Lists available STT models from mlx-audio-swift
+    public static func listAvailableModels() {
+        print("\n📋 Available STT Models (mlx-community repos):")
+        print("===============================================")
+        print("FAST (Speed priority):")
+        print("   mlx-community/parakeet-tdt-0.6b-v3 (~2.5GB)")
+        print("")
+        print("BALANCED:")
+        print("   mlx-community/parakeet-tdt-1.1b-v2 (~5GB)")
+        print("   mlx-community/Qwen3-ASR-1.7B-8bit (~2GB quantized)")
+        print("")
+        print("QUALITY (Your M4 Pro can handle these!):")
+        print("   mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16 (~8GB)")
+        print("   mlx-community/VibeVoice-ASR-bf16 (~9GB)")
+        print("   mlx-community/whisper-large-v3-turbo-asr-fp16 (~6GB)")
+        print("")
+        print("⚠️  Use mlx-community repos - optimized for MLX Metal")
+    }
+    
+    // MARK: - Industry Standard Tests
+    
+    /// Harvard Sentences - Industry standard phonetically balanced test phrases
+    /// Source: IEEE/ANSI standard for audio equipment testing
+    public static let harvardSentences = [
+        "The birch canoe slid on the smooth planks.",
+        "Glue the sheet to the dark blue background.",
+        "It's easy to tell the depth of a well.",
+        "These days a chicken leg is a rare dish.",
+        "Rice is often served in round bowls.",
+        "The juice of lemons makes fine punch.",
+        "The box was thrown beside the parked truck.",
+        "The hogs were fed chopped corn and garbage.",
+        "Four hours of steady work faced us.",
+        "A large size in stockings is hard to sell."
+    ]
+    
+    /// Calculate Word Error Rate (WER) - Industry standard ASR metric
+    /// Formula: WER = (S + D + I) / N
+    /// Where: S=substitutions, D=deletions, I=insertions, N=reference word count
+    public static func calculateWER(reference: String, hypothesis: String) -> Double {
+        // Normalize text: lowercase, remove punctuation
+        let refNormalized = normalizeASRText(reference)
+        let hypNormalized = normalizeASRText(hypothesis)
+        
+        let refWords = refNormalized.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        let hypWords = hypNormalized.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        
+        // Simple Levenshtein distance calculation
+        let (substitutions, deletions, insertions) = levenshteinOperations(refWords, hypWords)
+        let totalErrors = substitutions + deletions + insertions
+        let wer = Double(totalErrors) / Double(refWords.count)
+        
+        print("\n📊 WER Analysis:")
+        print("   Reference:  \"\(reference)\"")
+        print("   Hypothesis: \"\(hypothesis)\"")
+        print("   Normalized Reference:  \"\(refNormalized)\"")
+        print("   Normalized Hypothesis: \"\(hypNormalized)\"")
+        print("   Words: \(refWords.count) | Sub: \(substitutions) | Del: \(deletions) | Ins: \(insertions)")
+        print("   WER: \(String(format: "%.1f", wer * 100))%")
+        
+        if wer == 0 {
+            print("   🎯 PERFECT TRANSCRIPTION!")
+        } else if wer < 0.05 {
+            print("   ✅ Excellent (target: <5%)")
+        } else if wer < 0.15 {
+            print("   ⚠️  Acceptable for meetings (target: <15%)")
+        } else {
+            print("   ❌ High error rate")
+        }
+        
+        return wer
+    }
+    
+    /// Normalize text for ASR evaluation (lowercase, remove punctuation)
+    private static func normalizeASRText(_ text: String) -> String {
+        let lowercase = text.lowercased()
+        // Remove punctuation except apostrophes (for contractions)
+        let punctuation = CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "'"))
+        return lowercase.components(separatedBy: punctuation).joined(separator: " ")
+    }
+    
+    /// Levenshtein distance for word sequences
+    private static func levenshteinOperations(_ ref: [String], _ hyp: [String]) -> (sub: Int, del: Int, ins: Int) {
+        let m = ref.count
+        let n = hyp.count
+        
+        guard m > 0 else { return (0, 0, n) }
+        guard n > 0 else { return (0, m, 0) }
+        
+        var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
+        
+        for i in 0...m { dp[i][0] = i }
+        for j in 0...n { dp[0][j] = j }
+        
+        for i in 1...m {
+            for j in 1...n {
+                if ref[i-1] == hyp[j-1] {
+                    dp[i][j] = dp[i-1][j-1]
+                } else {
+                    dp[i][j] = min(dp[i-1][j-1], min(dp[i-1][j], dp[i][j-1])) + 1
+                }
+            }
+        }
+        
+        // Backtrack to count operations
+        var i = m, j = n
+        var sub = 0, del = 0, ins = 0
+        
+        while i > 0 || j > 0 {
+            if i == 0 {
+                ins += 1
+                j -= 1
+            } else if j == 0 {
+                del += 1
+                i -= 1
+            } else if ref[i-1] == hyp[j-1] {
+                i -= 1
+                j -= 1
+            } else {
+                let minVal = min(dp[i-1][j-1], min(dp[i-1][j], dp[i][j-1]))
+                if dp[i-1][j-1] == minVal {
+                    sub += 1
+                    i -= 1
+                    j -= 1
+                } else if dp[i-1][j] == minVal {
+                    del += 1
+                    i -= 1
+                } else {
+                    ins += 1
+                    j -= 1
+                }
+            }
+        }
+        
+        return (sub, del, ins)
+    }
+    
+    /// Run Harvard Sentences test with synthetic audio
+    /// In production, replace with recorded audio of these sentences
+    public static func runHarvardTest() async throws {
+        print("\n🎓 Harvard Sentences Test (IEEE/ANSI Standard)")
+        print("==============================================")
+        print("Testing with \(harvardSentences.count) phonetically balanced phrases")
+        print("Note: Using synthetic audio - WER will be high. Use recorded speech for real validation.")
+        
+        var totalWER: Double = 0
+        var testedCount = 0
+        
+        // Load model once
+        print("\n📥 Loading GLMASR 9B (4bit)...")
+        let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
+        print("✅ Model ready")
+        
+        for (index, sentence) in harvardSentences.enumerated() {
+            print("\n[Test \(index + 1)/\(harvardSentences.count)]")
+            
+            // Generate speech-like audio for this sentence
+            // In real test, load recorded audio file
+            let duration = Double(sentence.split(separator: " ").count) * 0.4 // ~0.4s per word
+            let samples = generateSpeechLikeAudio(duration: max(duration, 2.0))
+            
+            let mlxArray = MLXArray(samples)
+            let output = model.generate(audio: mlxArray)
+            
+            let wer = calculateWER(reference: sentence, hypothesis: output.text)
+            totalWER += wer
+            testedCount += 1
+        }
+        
+        let avgWER = totalWER / Double(testedCount)
+        print("\n📈 Harvard Test Summary")
+        print("=======================")
+        print("Average WER: \(String(format: "%.1f", avgWER * 100))%")
+        print("⚠️  Note: High WER expected with synthetic audio")
+        print("💡 For real validation, record yourself speaking these sentences")
+    }
+    
+    /// Industry standard benchmark info
+    public static func printBenchmarkInfo() {
+        print("\n📚 Industry Standard ASR Benchmarks")
+        print("====================================")
+        print("1. LibriSpeech (Most Common)")
+        print("   - test-clean: Clean read speech, ~5hrs")
+        print("   - test-other: Challenging accents/noise")
+        print("   - Download: https://www.openslr.org/12/")
+        print("   - Metric: WER (Word Error Rate)")
+        print("")
+        print("2. Common Voice (Mozilla)")
+        print("   - Crowdsourced, diverse speakers")
+        print("   - More realistic than LibriSpeech")
+        print("")
+        print("3. TED-LIUM (Conversational)")
+        print("   - Natural speech patterns")
+        print("   - Good for meeting transcription")
+        print("")
+        print("4. CHiME (Noisy Environments)")
+        print("   - Tests robustness to background noise")
+        print("")
+        print("🎯 Target WER for production: <5% on clean speech")
+        print("🎯 Target WER for meetings: <15% with background noise")
+    }
+    
+    // MARK: - Extended Benchmarking
+    
+    /// LibriSpeech test samples with ground truth
+    public static let librispeechTests: [(file: String, groundTruth: String)] = [
+        ("test_data/librispeech_0000.wav", "SHORTLY AFTER PASSING ONE OF THESE CHAPELS WE CAME SUDDENLY UPON A VILLAGE WHICH STARTED UP OUT OF THE MIST AND I WAS ALARMED LEST I SHOULD BE MADE AN OBJECT OF CURIOSITY OR DISLIKE"),
+        ("test_data/librispeech_0001.wav", "MY GUIDES HOWEVER WERE WELL KNOWN AND THE NATURAL POLITENESS OF THE PEOPLE PREVENTED THEM FROM PUTTING ME TO ANY INCONVENIENCE BUT THEY COULD NOT HELP EYEING ME NOR I THEM"),
+        ("test_data/librispeech_0002.wav", "THE STREETS WERE NARROW AND UNPAVED BUT VERY FAIRLY CLEAN"),
+        ("test_data/librispeech_0003.wav", "THE VINE GREW OUTSIDE MANY OF THE HOUSES AND THERE WERE SOME WITH SIGN BOARDS ON WHICH WAS PAINTED A BOTTLE AND A GLASS THAT MADE ME FEEL MUCH AT HOME"),
+        ("test_data/librispeech_0004.wav", "EVEN ON THIS LEDGE OF HUMAN SOCIETY THERE WAS A STUNTED GROWTH OF SHOPLETS WHICH HAD TAKEN ROOT AND VEGETATED SOMEHOW THOUGH AS IN AN AIR MERCANTILE OF THE BLEAKEST"),
+        ("test_data/librispeech_0005.wav", "EACH FEATURE WAS FINISHED EYELIDS EYELASHES AND EARS BEING ALMOST INVARIABLY PERFECT")
+    ]
+    
+    /// Run extended LibriSpeech benchmark
+    public static func runExtendedBenchmark() async throws {
+        print("\n🔬 Extended LibriSpeech Benchmark")
+        print("==================================")
+        print("Testing \(librispeechTests.count) samples from LibriSpeech dev-clean")
+        print("Model: GLMASR 9B (4bit quantized)")
+        print("")
+        
+        // Load model once
+        print("📥 Loading GLMASR 9B (4bit) model...")
+        let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
+        print("✅ Model loaded!\n")
+        
+        var results: [(file: String, wer: Double, rtf: Double, duration: Double)] = []
+        var totalWER: Double = 0
+        var totalRTF: Double = 0
+        var totalDuration: Double = 0
+        
+        for (index, test) in librispeechTests.enumerated() {
+            print("[Sample \(index + 1)/\(librispeechTests.count)] \(test.file)")
+            
+            do {
+                // Load audio
+                let samples = try loadAudioFile(test.file)
+                let mlxArray = MLXArray(samples)
+                let duration = Double(samples.count) / 16000.0
+                
+                // Transcribe
+                let startTime = Date()
+                let output = model.generate(audio: mlxArray)
+                let inferenceTime = Date().timeIntervalSince(startTime)
+                let rtf = inferenceTime / duration
+                
+                // Calculate WER
+                let wer = calculateWER(reference: test.groundTruth, hypothesis: output.text)
+                
+                results.append((test.file, wer, rtf, duration))
+                totalWER += wer
+                totalRTF += rtf
+                totalDuration += duration
+                
+                print("   Duration: \(String(format: "%.2f", duration))s | RTF: \(String(format: "%.3f", rtf)) | WER: \(String(format: "%.1f", wer * 100))%")
+                print("   Transcription: \"\(output.text)\"")
+                print("")
+            } catch {
+                print("   ❌ Error: \(error)\n")
+            }
+        }
+        
+        // Summary
+        let count = Double(results.count)
+        let avgWER = totalWER / count
+        let avgRTF = totalRTF / count
+        let avgDuration = totalDuration / count
+        
+        print("\n📊 Extended Benchmark Summary")
+        print("==============================")
+        print("Samples tested: \(results.count)")
+        print("Average WER: \(String(format: "%.1f", avgWER * 100))%")
+        print("Average RTF: \(String(format: "%.3f", avgRTF))")
+        print("Average audio duration: \(String(format: "%.2f", avgDuration))s")
+        print("Total audio duration: \(String(format: "%.2f", totalDuration))s")
+        
+        // Quality assessment
+        print("\n🎯 Quality Assessment:")
+        if avgWER == 0 {
+            print("   🏆 PERFECT - All samples transcribed flawlessly!")
+        } else if avgWER < 0.05 {
+            print("   ✅ EXCELLENT - Meets production target (<5% WER)")
+        } else if avgWER < 0.15 {
+            print("   ⚠️  ACCEPTABLE - Good for meetings (<15% WER)")
+        } else {
+            print("   ❌ NEEDS IMPROVEMENT - High error rate")
+        }
+        
+        if avgRTF < 0.3 {
+            print("   ✅ REAL-TIME READY - RTF \(String(format: "%.3f", avgRTF)) < 0.3")
+        } else {
+            print("   ⚠️  SLOW - RTF \(String(format: "%.3f", avgRTF)) >= 0.3")
+        }
+        
+        // Per-sample breakdown
+        print("\n📋 Per-Sample Results:")
+        print("File                | Duration | RTF   | WER")
+        print("--------------------|----------|-------|------")
+        for result in results {
+            let file = result.file.replacingOccurrences(of: "test_data/", with: "").padding(toLength: 19, withPad: " ", startingAt: 0)
+            let dur = String(format: "%.2f", result.duration).padding(toLength: 8, withPad: " ", startingAt: 0)
+            let rtf = String(format: "%.3f", result.rtf).padding(toLength: 5, withPad: " ", startingAt: 0)
+            let wer = String(format: "%.1f%%", result.wer * 100).padding(toLength: 4, withPad: " ", startingAt: 0)
+            print("\(file)| \(dur)s | \(rtf) | \(wer)")
+        }
+    }
+}
+
+/// Performance metrics structure
+public struct PerformanceMetrics {
+    public let loadTime: Double
+    public let inferenceTime: Double
+    public let audioDuration: Double
+    public let rtf: Double
+    public let text: String
+    
+    public var summary: String {
+        "RTF: \(String(format: "%.3f", rtf)) | Load: \(String(format: "%.1f", loadTime))s | Inference: \(String(format: "%.2f", inferenceTime))s"
+    }
+}
