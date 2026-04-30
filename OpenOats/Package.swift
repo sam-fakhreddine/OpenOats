@@ -26,6 +26,10 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
         .package(url: "https://github.com/sindresorhus/LaunchAtLogin-Modern", from: "1.1.0"),
+        // NOTE: MLX Audio dependencies temporarily disabled due to version conflicts with WhisperKit
+        // See MLX_INTEGRATION.md for details and resolution path
+        // .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.31.0"),
+        // .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", from: "0.1.0"),
     ],
     targets: [
         .target(
@@ -35,6 +39,9 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "LaunchAtLogin", package: "LaunchAtLogin-Modern"),
+                // NOTE: MLX dependencies disabled - see MLX_INTEGRATION.md
+                // .product(name: "MLX", package: "mlx-swift"),
+                // .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
             ],
             path: "Sources/OpenOats",
             exclude: ["Info.plist", "OpenOats.entitlements", "Assets", "Resources"]
