@@ -103,7 +103,7 @@ let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
 | Runtime (Metal) | GPU access | ✅ Pass (M4 Pro) |
 | Buffer transfer | Working | ✅ Pass |
 | STT API exploration | Documented | ✅ Pass |
-| Model loading test | Working | ⏳ Step 3 |
+| Model loading test | Partial | ⚠️ Config issue |
 | Q4 quantization | Tested | ⏳ Pending |
 
 ## Findings
@@ -124,6 +124,14 @@ let mlxArray = MLXArray(samples)  // [Float] -> MLXArray
 - ✅ **Streaming support**: `generateStream()` available for real-time transcription
 - ✅ **HuggingFace integration**: Models auto-download from HF Hub
 - 📝 **No Q4 quantization visible** in current API - may be automatic or not yet implemented
+
+### 2026-04-30: Model Loading Test (Step 3 Partial)
+- ✅ **Model download works** - Successfully downloads ~4GB from HuggingFace
+- ✅ **Cache system works** - Models cached at `~/.cache/huggingface/hub/mlx-audio/`
+- ✅ **MLXArray input works** - Synthetic audio generation and MLXArray creation
+- ⚠️ **Config parsing error** - `keyNotFound: preprocessor` - Model format mismatch
+- 📝 **Model version issue** - The nvidia/parakeet-ctc-1.1b config doesn't match expected format
+- 📝 **Next step** - Try different model or check mlx-audio-swift version compatibility
 
 ### Available Modules (from build output)
 - `MLXAudioSTT` - Speech-to-text (Whisper, Parakeet, Qwen3ASR, etc.)
