@@ -1,5 +1,5 @@
 import MLX
-import MLXAudio
+import MLXAudioSTT
 
 /// MLX Audio investigation spike for OpenOats ASR migration
 ///
@@ -23,36 +23,6 @@ public struct MLXAudioSpike {
         
         // Note: MLX Swift copies data by design for safety
         // For true zero-copy, use UnsafeMutablePointer approaches
-    }
-    
-    /// Tests basic MLX operations for audio processing
-    public static func testAudioOperations() {
-        // Simulate audio processing: FFT-like operations
-        let sampleCount = 16000  // 1 second at 16kHz
-        let audioBuffer = MLXArray.zeros([sampleCount])
-        
-        // Simulate windowing operation
-        let windowSize = 512
-        let hopLength = 256
-        let numFrames = (sampleCount - windowSize) / hopLength + 1
-        
-        print("Audio buffer shape: \(audioBuffer.shape)")
-        print("Window size: \(windowSize), Hop length: \(hopLength)")
-        print("Number of frames: \(numFrames)")
-        
-        // MLX evaluation
-        eval(audioBuffer)
-    }
-}
-    
-    /// Tests zero-copy buffer transfer from existing [Float] buffers
-    public static func testZeroCopyTransfer(samples: [Float]) {
-        // Create MLXArray from samples (copies data)
-        let mlxArray = MLXArray(samples)
-        print("Created MLXArray with shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
-        
-        // TODO: Explore zero-copy options with MLX
-        // MLX Swift may support buffer sharing in future versions
     }
     
     /// Tests basic MLX operations for audio processing

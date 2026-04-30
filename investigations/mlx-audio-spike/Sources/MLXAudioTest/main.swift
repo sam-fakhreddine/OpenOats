@@ -1,5 +1,5 @@
 import MLX
-import MLXAudio
+import MLXAudioSTT
 import MLXAudioSpike
 
 /// Test executable for MLX Audio spike validation
