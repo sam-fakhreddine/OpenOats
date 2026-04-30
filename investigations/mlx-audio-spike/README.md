@@ -71,16 +71,29 @@ let result = try await whisper.transcribe(mlxArray)
 | Metric | Target | Status |
 |--------|--------|--------|
 | Package resolution | Working | ✅ Pass |
-| Build | Clean | ⏳ Pending |
+| Build | Clean | ✅ Pass |
+| Runtime (Metal) | GPU access | ⚠️ Needs M4 Pro |
 | Zero-copy transfer | Working | ⏳ Pending |
 | Q4 quality | Acceptable | ⏳ Pending |
 
 ## Findings
 
-### 2026-04-30: Initial Setup
+### 2026-04-30: Build Validation
 - ✅ mlx-swift package resolves correctly (v0.31.3)
 - ✅ mlx-audio-swift repository found: https://github.com/Blaizzy/mlx-audio-swift
-- 📝 Need to explore mlx-audio-swift API surface
+- ✅ Build succeeds (12.31s compile time)
+- ⚠️ Runtime requires Metal GPU (fails in CLI environment)
+- 📝 Module name is `MLXAudioSTT` (not `MLXAudio`)
+
+### Available Modules (from build output)
+- `MLXAudioSTT` - Speech-to-text (Whisper, Parakeet, Qwen3ASR, etc.)
+- `MLXAudioTTS` - Text-to-speech
+- `MLXAudioVAD` - Voice activity detection
+- `MLXAudioLID` - Language identification
+- `MLXAudioCodecs` - Audio codecs (Mimi, DAC, Encodec)
+- `MLXAudioCore` - Core audio utilities
+- `MLXAudioSTS` - Speech-to-speech
+- `MLXAudioUI` - UI components
 
 ## References
 
