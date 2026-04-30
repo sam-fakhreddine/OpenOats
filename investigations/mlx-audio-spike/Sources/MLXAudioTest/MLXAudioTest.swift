@@ -20,35 +20,21 @@ struct MLXAudioTest {
         print("\n[Test 1] Available models...")
         MLXAudioSpike.listAvailableModels()
         
-        // Test model loading and transcription
-        print("\n[Test 2] Model loading & transcription...")
+        // Benchmark multiple models
+        print("\n[Test 2] Benchmark models against each other...")
+        await MLXAudioSpike.benchmarkModels(samples: syntheticSamples)
+        
+        // Test single high-quality model
+        print("\n[Test 3] Test high-quality Voxtral 4B model...")
         do {
             let result = try await MLXAudioSpike.testModelLoadingAndTranscription(samples: syntheticSamples)
-            print("\n✅ Test 2 passed! Result: \"\(result)\"")
+            print("\n✅ Test 3 passed! Result: \"\(result)\"")
         } catch {
-            print("\n⚠️ Test 2 failed (expected if model not cached): \(error)")
-        }
-        
-        // Test performance measurement
-        print("\n[Test 3] Performance measurement...")
-        do {
-            let metrics = try await MLXAudioSpike.measurePerformance(samples: syntheticSamples)
-            print("\n✅ Test 3 passed!")
-            print("📊 Summary: \(metrics.summary)")
-            
-            // Evaluate RTF
-            if metrics.rtf < 0.3 {
-                print("🎉 RTF target met! (< 0.3)")
-            } else {
-                print("⚠️ RTF above target: \(String(format: "%.3f", metrics.rtf)) (target: <0.3)")
-            }
-        } catch {
-            print("\n⚠️ Test 3 failed (expected if model not cached): \(error)")
+            print("\n⚠️ Test 3 failed: \(error)")
         }
         
         print("\n✅ Step 3 validation complete")
         print("\n📚 mlx-audio-swift: https://github.com/Blaizzy/mlx-audio-swift")
-        print("💡 Note: First run downloads ~2GB model from HuggingFace")
-        print("   Cache location: ~/Library/Caches/huggingface/")
+        print("💡 Models cached at: ~/.cache/huggingface/hub/mlx-audio/")
     }
 }

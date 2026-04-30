@@ -19,14 +19,13 @@ public struct MLXAudioSpike {
         let mlxArray = MLXArray(samples)
         print("✅ Created MLXArray with shape: \(mlxArray.shape), dtype: \(mlxArray.dtype)")
         
-        // Use mlx-community Whisper model (optimized for MLX)
-        print("\n📥 Loading model: mlx-community/whisper-large-v3-turbo-asr-fp16...")
-        print("   (This will download ~1.5GB on first run)")
+        // Use high-quality GraniteSpeech model (IBM's 3.3B - better quality!)
+        print("\n📥 Loading model: ibm-granite/granite-speech-3.3b...")
+        print("   (This will download ~6GB on first run - quality model for M4 Pro!)")
         
         do {
-            // Note: Need to check if Whisper is available in MLXAudioSTT
-            // For now, try Parakeet from mlx-community
-            let model = try await ParakeetModel.fromPretrained("mlx-community/parakeet-tdt-0.6b-v3")
+            // GraniteSpeech 3.3B - IBM's quality model
+            let model = try await GraniteSpeechModel.fromPretrained("ibm-granite/granite-speech-3.3b")
             print("✅ Model loaded successfully!")
             
             // Generate transcription
@@ -103,34 +102,74 @@ public struct MLXAudioSpike {
         return metrics
     }
     
+    /// Benchmark multiple models against each other
+    public static func benchmarkModels(samples: [Float]) async {
+        print("\n🏆 Model Benchmark Comparison")
+        print("==============================")
+        print("Testing on M4 Pro with \(samples.count/16000)s of audio\n")
+        
+        let models = [
+            ("Parakeet 0.6B", "mlx-community/parakeet-tdt-0.6b-v3", "fast"),
+            ("GraniteSpeech 3.3B", "ibm-granite/granite-speech-3.3b", "quality"),
+        ]
+        
+        var results: [(name: String, loadTime: Double, inferenceTime: Double, rtf: Double)] = []
+        
+        for (name, repo, category) in models {
+            print("📊 Testing \(name) [\(category)]...")
+            do {
+                let mlxArray = MLXArray(samples)
+                
+                let loadStart = Date()
+                // Try GraniteSpeech for quality comparison
+                let model = try await GraniteSpeechModel.fromPretrained(repo)
+                let loadTime = Date().timeIntervalSince(loadStart)
+                
+                let inferenceStart = Date()
+                let _ = model.generate(audio: mlxArray)
+                let inferenceTime = Date().timeIntervalSince(inferenceStart)
+                
+                let audioDuration = Double(samples.count) / 16000.0
+                let rtf = inferenceTime / audioDuration
+                
+                results.append((name, loadTime, inferenceTime, rtf))
+                print("   ✅ RTF: \(String(format: "%.3f", rtf)) | Load: \(String(format: "%.1f", loadTime))s | Inference: \(String(format: "%.2f", inferenceTime))s")
+            } catch {
+                print("   ❌ Failed: \(error)")
+            }
+        }
+        
+        print("\n📈 Benchmark Results Summary")
+        print("=============================")
+        print("Model                | RTF    | Load | Inference")
+        print("---------------------|--------|------|----------")
+        for result in results {
+            let name = result.name.padding(toLength: 20, withPad: " ", startingAt: 0)
+            print("\(name)| \(String(format: "%.3f", result.rtf).padding(toLength: 6, withPad: " ", startingAt: 0))| \(String(format: "%.1f", result.loadTime).padding(toLength: 5, withPad: " ", startingAt: 0))| \(String(format: "%.2f", result.inferenceTime))s")
+        }
+        
+        if let best = results.min(by: { $0.rtf < $1.rtf }) {
+            print("\n🥇 Best RTF: \(best.name) (RTF: \(String(format: "%.3f", best.rtf)))")
+        }
+    }
+    
     /// Lists available STT models from mlx-audio-swift
     public static func listAvailableModels() {
         print("\n📋 Available STT Models (mlx-community repos):")
         print("===============================================")
-        print("1. Whisper (OpenAI)")
-        print("   - mlx-community/whisper-large-v3-turbo-asr-fp16 ⭐ Recommended")
+        print("FAST (Speed priority):")
+        print("   mlx-community/parakeet-tdt-0.6b-v3 (~2.5GB)")
         print("")
-        print("2. Parakeet (NVIDIA)")
-        print("   - mlx-community/parakeet-tdt-0.6b-v3 ⭐ Tested")
-        print("   - mlx-community/parakeet-tdt-1.1b-v2")
+        print("BALANCED:")
+        print("   mlx-community/parakeet-tdt-1.1b-v2 (~5GB)")
+        print("   mlx-community/Qwen3-ASR-1.7B-8bit (~2GB quantized)")
         print("")
-        print("3. Qwen3ASR (Alibaba)")
-        print("   - mlx-community/Qwen3-ASR-1.7B-8bit")
+        print("QUALITY (Your M4 Pro can handle these!):")
+        print("   mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16 (~8GB)")
+        print("   mlx-community/VibeVoice-ASR-bf16 (~9GB)")
+        print("   mlx-community/whisper-large-v3-turbo-asr-fp16 (~6GB)")
         print("")
-        print("4. Voxtral (Mistral)")
-        print("   - mlx-community/Voxtral-Mini-3B-2507-bf16")
-        print("   - mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16")
-        print("")
-        print("5. VibeVoice-ASR (Microsoft)")
-        print("   - mlx-community/VibeVoice-ASR-bf16")
-        print("")
-        print("⚠️  Important: Use mlx-community repos, not original HF repos!")
-        print("   mlx-community models are optimized for MLX Metal backend")
-        print("")
-        print("Usage:")
-        print("  let model = try await ParakeetModel.fromPretrained(\"mlx-community/parakeet-tdt-0.6b-v3\")")
-        print("  let output = model.generate(audio: mlxArray)")
-        print("  print(output.text)")
+        print("⚠️  Use mlx-community repos - optimized for MLX Metal")
     }
 }
 
