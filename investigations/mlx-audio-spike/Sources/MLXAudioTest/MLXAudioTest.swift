@@ -39,6 +39,19 @@ struct MLXAudioTest {
             } catch {
                 print("⚠️ Harvard test failed: \(error)")
             }
+        } else if args.contains("--librispeech") {
+            print("\n[Test 2] LibriSpeech Standard Benchmark...")
+            do {
+                // LibriSpeech sample with ground truth
+                let result = try await MLXAudioSpike.transcribeAudioFile(
+                    "test_data/librispeech_0002.wav",
+                    groundTruth: "THE STREETS WERE NARROW AND UNPAVED BUT VERY FAIRLY CLEAN"
+                )
+                print("\n✅ LibriSpeech test complete!")
+                print("📝 Transcription: \"\(result)\"")
+            } catch {
+                print("\n⚠️ LibriSpeech test: \(error)")
+            }
         } else {
             print("\n[Test 2] Real audio transcription with GLMASR 9B...")
             do {

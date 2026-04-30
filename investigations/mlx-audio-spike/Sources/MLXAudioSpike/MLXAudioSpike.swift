@@ -1,6 +1,7 @@
 import MLX
 import MLXAudioSTT
 import Foundation
+import AVFoundation
 
 /// MLX Audio investigation spike for OpenOats ASR migration
 ///
@@ -67,7 +68,7 @@ public struct MLXAudioSpike {
     /// Test 4: Transcribe real audio file
     /// - Parameter filePath: Path to audio file (wav, mp3, etc.)
     /// - Returns: Transcription result
-    public static func transcribeAudioFile(_ filePath: String) async throws -> String {
+    public static func transcribeAudioFile(_ filePath: String, groundTruth: String? = nil) async throws -> String {
         print("\n🎧 Test: Real Audio File Transcription")
         print("=======================================")
         print("📁 Loading audio file: \(filePath)")
@@ -100,6 +101,11 @@ public struct MLXAudioSpike {
             print("🌐 Language: \(language)")
         }
         
+        // Calculate WER if ground truth provided
+        if let truth = groundTruth {
+            let _ = calculateWER(reference: truth, hypothesis: output.text)
+        }
+        
         return output.text
     }
     
@@ -107,16 +113,85 @@ public struct MLXAudioSpike {
     private static func loadAudioFile(_ filePath: String) throws -> [Float] {
         let url = URL(fileURLWithPath: filePath)
         
-        // For now, return synthetic speech-like audio if file doesn't exist
-        // In production, use AVAudioEngine to load and resample
-        if !FileManager.default.fileExists(atPath: filePath) {
+        guard FileManager.default.fileExists(atPath: filePath) else {
             print("⚠️  File not found, generating test speech pattern...")
             return generateSpeechLikeAudio(duration: 5.0)
         }
         
-        // Placeholder: In real implementation, use AVAudioFile + resampling
-        // For this spike, we'll generate a more complex test signal
-        return generateSpeechLikeAudio(duration: 5.0)
+        print("✅ Found audio file: \(filePath)")
+        
+        // Load audio file using AVAudioFile
+        let audioFile = try AVAudioFile(forReading: url)
+        
+        // Get audio format info
+        let sampleRate = audioFile.fileFormat.sampleRate
+        let channelCount = audioFile.fileFormat.channelCount
+        print("   Original: \(sampleRate)Hz, \(channelCount) channels")
+        
+        // Read all audio data
+        let frameCount = UInt32(audioFile.length)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else {
+            throw AudioError.bufferCreationFailed
+        }
+        
+        try audioFile.read(into: buffer)
+        
+        // Convert to Float array (mono, 16kHz)
+        var samples = [Float]()
+        
+        if let floatData = buffer.floatChannelData {
+            // Extract samples (convert to mono if stereo)
+            for frame in 0..<Int(buffer.frameLength) {
+                var sample: Float = 0
+                for channel in 0..<Int(channelCount) {
+                    sample += floatData[channel][frame]
+                }
+                samples.append(sample / Float(channelCount)) // Average channels
+            }
+        } else if let int16Data = buffer.int16ChannelData {
+            // Convert Int16 to Float
+            for frame in 0..<Int(buffer.frameLength) {
+                var sample: Float = 0
+                for channel in 0..<Int(channelCount) {
+                    sample += Float(int16Data[channel][frame]) / 32768.0
+                }
+                samples.append(sample / Float(channelCount))
+            }
+        } else {
+            throw AudioError.unsupportedFormat
+        }
+        
+        // Resample to 16kHz if needed
+        if sampleRate != 16000 {
+            print("   Resampling from \(Int(sampleRate))Hz to 16000Hz...")
+            samples = resample(samples, from: sampleRate, to: 16000)
+        }
+        
+        print("   Loaded \(samples.count) samples (\(String(format: "%.2f", Double(samples.count)/16000.0))s)")
+        return samples
+    }
+    
+    /// Simple linear resampling
+    private static func resample(_ samples: [Float], from sourceRate: Double, to targetRate: Double) -> [Float] {
+        let ratio = sourceRate / targetRate
+        let newLength = Int(Double(samples.count) / ratio)
+        var resampled = [Float](repeating: 0, count: newLength)
+        
+        for i in 0..<newLength {
+            let sourceIndex = Double(i) * ratio
+            let index0 = Int(sourceIndex)
+            let index1 = min(index0 + 1, samples.count - 1)
+            let fraction = sourceIndex - Double(index0)
+            
+            resampled[i] = samples[index0] * (1 - Float(fraction)) + samples[index1] * Float(fraction)
+        }
+        
+        return resampled
+    }
+    
+    enum AudioError: Error {
+        case bufferCreationFailed
+        case unsupportedFormat
     }
     
     /// Generate speech-like test audio (multiple frequencies)
@@ -275,8 +350,12 @@ public struct MLXAudioSpike {
     /// Formula: WER = (S + D + I) / N
     /// Where: S=substitutions, D=deletions, I=insertions, N=reference word count
     public static func calculateWER(reference: String, hypothesis: String) -> Double {
-        let refWords = reference.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        let hypWords = hypothesis.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        // Normalize text: lowercase, remove punctuation
+        let refNormalized = normalizeASRText(reference)
+        let hypNormalized = normalizeASRText(hypothesis)
+        
+        let refWords = refNormalized.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        let hypWords = hypNormalized.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         
         // Simple Levenshtein distance calculation
         let (substitutions, deletions, insertions) = levenshteinOperations(refWords, hypWords)
@@ -286,10 +365,30 @@ public struct MLXAudioSpike {
         print("\n📊 WER Analysis:")
         print("   Reference:  \"\(reference)\"")
         print("   Hypothesis: \"\(hypothesis)\"")
+        print("   Normalized Reference:  \"\(refNormalized)\"")
+        print("   Normalized Hypothesis: \"\(hypNormalized)\"")
         print("   Words: \(refWords.count) | Sub: \(substitutions) | Del: \(deletions) | Ins: \(insertions)")
         print("   WER: \(String(format: "%.1f", wer * 100))%")
         
+        if wer == 0 {
+            print("   🎯 PERFECT TRANSCRIPTION!")
+        } else if wer < 0.05 {
+            print("   ✅ Excellent (target: <5%)")
+        } else if wer < 0.15 {
+            print("   ⚠️  Acceptable for meetings (target: <15%)")
+        } else {
+            print("   ❌ High error rate")
+        }
+        
         return wer
+    }
+    
+    /// Normalize text for ASR evaluation (lowercase, remove punctuation)
+    private static func normalizeASRText(_ text: String) -> String {
+        let lowercase = text.lowercased()
+        // Remove punctuation except apostrophes (for contractions)
+        let punctuation = CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "'"))
+        return lowercase.components(separatedBy: punctuation).joined(separator: " ")
     }
     
     /// Levenshtein distance for word sequences
