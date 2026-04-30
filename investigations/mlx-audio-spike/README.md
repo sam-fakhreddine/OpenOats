@@ -30,17 +30,19 @@ investigations/mlx-audio-spike/
 
 ## Usage
 
+**Important:** MLX requires Metal shaders which must be built with `xcodebuild`, not `swift build`.
+
 ```bash
 cd investigations/mlx-audio-spike
 
 # Resolve dependencies
 swift package resolve
 
-# Build
-swift build
+# Build with xcodebuild (required for Metal support)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -scheme MLXAudioTest -destination 'platform=macOS'
 
-# Run tests
-swift run MLXAudioTest
+# Run the executable directly
+~/Library/Developer/Xcode/DerivedData/mlx-audio-spike-*/Build/Products/Debug/MLXAudioTest
 ```
 
 ## API Patterns to Validate
@@ -71,19 +73,22 @@ let result = try await whisper.transcribe(mlxArray)
 | Metric | Target | Status |
 |--------|--------|--------|
 | Package resolution | Working | ✅ Pass |
-| Build | Clean | ✅ Pass |
-| Runtime (Metal) | GPU access | ⚠️ Needs M4 Pro |
-| Zero-copy transfer | Working | ⏳ Pending |
-| Q4 quality | Acceptable | ⏳ Pending |
+| Build (xcodebuild) | Clean | ✅ Pass |
+| Runtime (Metal) | GPU access | ✅ Pass (M4 Pro) |
+| Buffer transfer | Working | ✅ Pass |
+| STT API exploration | Working | ⏳ Next step |
+| Q4 quantization | Tested | ⏳ Pending |
 
 ## Findings
 
-### 2026-04-30: Build Validation
+### 2026-04-30: Build & Runtime Validation
 - ✅ mlx-swift package resolves correctly (v0.31.3)
 - ✅ mlx-audio-swift repository found: https://github.com/Blaizzy/mlx-audio-swift
-- ✅ Build succeeds (12.31s compile time)
-- ⚠️ Runtime requires Metal GPU (fails in CLI environment)
+- ✅ **xcodebuild required** - SwiftPM cannot build Metal shaders
+- ✅ **Metal GPU working** on M4 Pro - runtime test passes
+- ✅ **MLXArray from [Float]** works (copies data as designed)
 - 📝 Module name is `MLXAudioSTT` (not `MLXAudio`)
+- 📝 File naming: Use `MLXAudioTest.swift` not `main.swift` with `@main`
 
 ### Available Modules (from build output)
 - `MLXAudioSTT` - Speech-to-text (Whisper, Parakeet, Qwen3ASR, etc.)
