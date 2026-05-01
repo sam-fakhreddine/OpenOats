@@ -50,13 +50,15 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
     /// Checks if the service is available by validating the API key.
     /// - Returns: true if the API key is valid and the service is reachable.
     public func isAvailable() async -> Bool {
-        guard let apiKey = await configuration.apiKey, !apiKey.isEmpty else {
+        guard let secureAPIKey = await configuration.secureAPIKey else {
             Self.log.warning("API key not configured for AssemblyAI")
             return false
         }
         
         do {
-            return try await validateAPIKey(apiKey)
+            return try await secureAPIKey.withSecureAccess { apiKey in
+                try await validateAPIKey(apiKey)
+            }
         } catch {
             Self.log.error("API key validation failed: \(error.localizedDescription)")
             return false
@@ -142,7 +144,7 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
         progressHandler: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> BatchTranscriptionResult {
         
-        guard let apiKey = await configuration.apiKey, !apiKey.isEmpty else {
+        guard let secureAPIKey = await configuration.secureAPIKey else {
             throw TranscriptionError.backendFailed(
                 backend: backendID.rawValue,
                 reason: "API key not configured",
@@ -177,7 +179,8 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
             let audioData = try Data(contentsOf: audioURL)
             let totalDurationSeconds = validation.duration?.components.seconds ?? 60
             
-            let uploadURL = try await uploadAudio(audioData, apiKey: apiKey) { uploadedBytes in
+            let uploadURL = try await secureAPIKey.withSecureAccess { apiKey in
+                try await uploadAudio(audioData, apiKey: apiKey) { uploadedBytes in
                 let totalBytes = audioData.count
                 let progress = Double(uploadedBytes) / Double(totalBytes)
                 progressHandler?(
@@ -201,22 +204,26 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
                 )
             )
             
-            let transcriptID = try await createTranscript(
-                uploadURL: uploadURL,
-                language: language,
-                speakerDiarization: speakerDiarization,
-                apiKey: apiKey
-            )
+            let transcriptID = try await secureAPIKey.withSecureAccess { apiKey in
+                try await createTranscript(
+                    uploadURL: uploadURL,
+                    language: language,
+                    speakerDiarization: speakerDiarization,
+                    apiKey: apiKey
+                )
+            }
             
             // Phase 3: Poll for completion
             Self.log.info("Polling transcript \(transcriptID)")
             
-            let (text, segments) = try await pollTranscript(
-                id: transcriptID,
-                apiKey: apiKey,
-                totalDuration: validation.duration,
-                progressHandler: progressHandler
-            )
+            let (text, segments) = try await secureAPIKey.withSecureAccess { apiKey in
+                try await pollTranscript(
+                    id: transcriptID,
+                    apiKey: apiKey,
+                    totalDuration: validation.duration,
+                    progressHandler: progressHandler
+                )
+            }
             
             let processingTime = Date().timeIntervalSince(startTime)
             
@@ -277,7 +284,7 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
         audioStream: AsyncStream<Data>,
         progressHandler: (@Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
-        guard let apiKey = await configuration.apiKey, !apiKey.isEmpty else {
+        guard let secureAPIKey = await configuration.secureAPIKey else {
             throw TranscriptionError.backendFailed(
                 backend: backendID.rawValue,
                 reason: "API key not configured",
@@ -299,9 +306,11 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
         
         // Use a local copy to avoid capture issues
         let finalData = totalData
-        return try await uploadAudio(finalData, apiKey: apiKey) { bytes in
-            let progress = Double(bytes) / Double(finalData.count)
-            progressHandler?(progress)
+        return try await secureAPIKey.withSecureAccess { apiKey in
+            try await uploadAudio(finalData, apiKey: apiKey) { bytes in
+                let progress = Double(bytes) / Double(finalData.count)
+                progressHandler?(progress)
+            }
         }
     }
     
@@ -431,7 +440,8 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
         totalDuration: Duration?,
         progressHandler: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> (String, [TranscriptionSegment]) {
-        let pollURL = URL(string: "https://api.assemblyai.com/v2/transcript/\(id)")!
+        // SEC-001 Fix: Use SecureURLConstruction to prevent URL injection
+        let pollURL = try SecureURLConstruction.pollURL(forTranscriptID: id)
         
         let maxPollAttempts = 120 // 60 seconds with 500ms intervals
         let pollInterval: Duration = .milliseconds(500)

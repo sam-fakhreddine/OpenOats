@@ -2,75 +2,166 @@
   "findings": [
     {
       "severity": "HIGH",
-      "file": "OpenOats/Sources/OpenOats/Settings/AppSecretStore.swift",
-      "line": 8,
-      "description": "Inconsistent Keychain service identifier: AppSecretStore uses 'com.opengranola.app' but SettingsStorage uses 'com.openoats.app'. This causes secrets stored by one to be inaccessible by the other, leading to apparent data loss or duplicate credential storage.",
-      "recommendation": "Unify to use 'com.openoats.app' as the canonical service identifier. AppSecretStore must be updated to match SettingsStorage's service string. Ensure migration logic exists for keys stored under old service."
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 434,
+      "description": "URL injection vulnerability via string interpolation. Transcript ID is directly interpolated into URL string without sanitization or URLComponents.",
+      "recommendation": "Use URLComponents instead of string interpolation: var components = URLComponents(string: \"https://api.assemblyai.com/v2/transcript\"); components?.path.append(\"/\\(id)\"); guard let pollURL = components?.url else { throw TranscriptionError.invalidTranscriptID }"
     },
     {
       "severity": "HIGH",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStorage.swift",
-      "line": 52,
-      "description": "KeychainHelper.save() ignores SecItemAdd result status. Silent failures could occur when keychain is locked or access is denied, with no error handling or logging.",
-      "recommendation": "Add OSStatus result checking to KeychainHelper.save(), saveIfMissing(), and delete() methods. Log errors using os_log with .public privacy level for status codes, never for values."
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 228,
+      "description": "URL injection vulnerability via string interpolation. Transcript ID is directly interpolated into URL string without sanitization.",
+      "recommendation": "Use URLComponents to construct the URL safely with proper percent encoding for the id parameter"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXModelDownloader.swift",
+      "line": 365,
+      "description": "URL injection via string interpolation. Base URL and filename are concatenated without URLComponents.",
+      "recommendation": "Use URLComponents or URL.appendingPathComponent() to safely construct URLs"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 53,
+      "description": "API key returned as plain String from Keychain. API keys stored as String can be memory-dumped and appear in crash logs.",
+      "recommendation": "Implement SecureString wrapper that stores data encrypted in memory and provides explicit cleanup with clear() method"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/CloudTranscriptionConfiguration.swift",
+      "line": 69,
+      "description": "API key property exposes plain String. The apiKey property returns String? which can remain in memory.",
+      "recommendation": "Replace String? with SecureString type that stores data encrypted and provides secure cleanup"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 73,
+      "description": "API key stored as plain String property. The apiKey is stored as String which can be extracted from memory dumps.",
+      "recommendation": "Use SecureString wrapper with encrypted memory storage and explicit cleanup"
     },
     {
       "severity": "MEDIUM",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
-      "line": 38,
-      "description": "@ObservationIgnored nonisolated(unsafe) used on 143+ private vars. While necessary for @Observable conformance with Observation framework, the 'nonisolated(unsafe)' annotation bypasses Swift 6 concurrency safety checks for backing storage. This is acceptable only because the class is @MainActor-isolated and @Observable manages access/mutation through generated accessors.",
-      "recommendation": "Add documentation comment explaining why nonisolated(unsafe) is safe here (class is @MainActor, @Observable generates thread-safe accessors). Consider auditing all secret properties to ensure lazy-loading is thread-safe."
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 311,
+      "description": "Force unwrapped URL creation. URL(string:) force unwrap without validation.",
+      "recommendation": "Use guard let with proper error handling instead of force unwrap"
     },
     {
       "severity": "MEDIUM",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
-      "line": 16,
-      "description": "loadSecretIfNeeded() has potential race condition: the check-and-set pattern (!loadedSecretKeys.contains + load + insert) is not atomic. Two concurrent accesses could both trigger keychain load, though @MainActor isolation makes this unlikely in practice.",
-      "recommendation": "Consider wrapping the lazy-loading check in a lock or using actor-isolated state to guarantee atomicity. Document thread safety assumptions since this runs on @MainActor."
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 331,
+      "description": "Force unwrapped URL creation for upload endpoint.",
+      "recommendation": "Replace force unwrap with guard let and proper error handling"
     },
     {
       "severity": "MEDIUM",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStorage.swift",
-      "line": 47,
-      "description": "typealias AppSettingsStorage = SettingsStorage provides backward compatibility but creates two names for the same type. This could lead to confusion in API contracts and potential misuse if internal properties are exposed.",
-      "recommendation": "The typealias is appropriate for backward compatibility. Add deprecation annotation (@available(*, deprecated, renamed: 'SettingsStorage')) to guide migration toward the canonical name."
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 388,
+      "description": "Force unwrapped URL creation for transcript endpoint.",
+      "recommendation": "Replace force unwrap with guard let and proper error handling"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 104,
+      "description": "Force unwrapped URL for API endpoint.",
+      "recommendation": "Use guard let or provide default URL instead of force unwrap"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 160,
+      "description": "Force unwrapped URL for upload endpoint.",
+      "recommendation": "Use guard let with proper error handling instead of force unwrap"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 199,
+      "description": "Force unwrapped URL for transcript endpoint.",
+      "recommendation": "Use guard let with proper error handling instead of force unwrap"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 352,
+      "description": "Defer block captures async operations which may not execute properly. Buffer cleanup in defer with Task may not complete before function exits.",
+      "recommendation": "Use explicit cleanup in do/catch/finally pattern instead of defer with async operations"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Business/UseCases/ImportAudioUseCase.swift",
+      "line": 181,
+      "description": "Weak self capture in actor-isolated context may prevent progress updates from executing.",
+      "recommendation": "Remove [weak self] in actor context - actors don't need weak capture for internal closures"
     },
     {
       "severity": "LOW",
-      "file": "OpenOats/Sources/OpenOats/Settings/AppSecretStore.swift",
-      "line": 33,
-      "description": "save() method does not trim input value before storage. Whitespace in API keys could cause authentication failures that are hard to debug.",
-      "recommendation": "Add trimming of whitespace and newlines before saving secrets, consistent with SettingsStore's pattern of trimming API keys."
+      "file": "OpenOats/Sources/OpenOats/Business/UseCases/GenerateNotesUseCase.swift",
+      "line": 72,
+      "description": "Manual isCancelled flag not synchronized. Using custom cancellation flag instead of Task.isCancelled.",
+      "recommendation": "Use Task.checkCancellation() exclusively and remove manual isCancelled flag"
     },
     {
       "severity": "LOW",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
-      "line": 14,
-      "description": "loadedSecretKeys is @ObservationIgnored but not explicitly Sendable-isolated. Since it's a Set<String> on a @MainActor class, access should be safe, but the pattern could be misunderstood.",
-      "recommendation": "Document that loadedSecretKeys is implicitly isolated to @MainActor via the containing class. Consider making it explicitly nonisolated(unsafe) for clarity if needed."
+      "file": "OpenOats/Sources/OpenOats/Business/UseCases/GenerateNotesUseCase.swift",
+      "line": 75,
+      "description": "Async computed property anti-pattern. isExecuting as async computed property is not idiomatic Swift.",
+      "recommendation": "Replace with explicit method: public func isExecuting() async -> Bool"
     },
     {
-      "severity": "INFO",
-      "file": "OpenOats/Sources/OpenOats/Settings/AppSettings.swift",
-      "line": 318,
-      "description": "Duplicate KeychainHelper definition exists in AppSettings.swift (com.opengranola.app service) alongside SettingsStorage.swift (com.openoats.app service). Both have similar functionality but different service strings. This is used for backward compatibility during migration but could cause maintenance issues.",
-      "recommendation": "Consider consolidating to a single KeychainHelper utility in SettingsStorage.swift and having AppSettings use that instead of its own duplicate. Document the migration path clearly."
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXTranscriptionService.swift",
+      "line": 153,
+      "description": "@unchecked Sendable without documented safety justification.",
+      "recommendation": "Add SAFETY comment explaining why the type is thread-safe"
     },
     {
-      "severity": "INFO",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
-      "line": 1135,
-      "description": "SettingsStore init accepts SettingsStorage parameter which defaults to .live(). This convenience init pattern properly supports dependency injection for testing while defaulting to production values.",
-      "recommendation": "No action needed. The convenience init pattern is appropriate and doesn't bypass security checks."
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitTranscriptionService.swift",
+      "line": 59,
+      "description": "@unchecked Sendable on actor is redundant. Actors are implicitly Sendable.",
+      "recommendation": "Remove @unchecked Sendable from actor declaration"
     },
     {
-      "severity": "INFO",
-      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
-      "line": 1650,
-      "description": "migrateKeychainServiceIfNeeded() properly migrates secrets from old 'com.opengranola.app' service to new 'com.openoats.app' service. This is the correct approach for handling the service identifier change.",
-      "recommendation": "No action needed. Migration logic exists and is properly implemented with saveIfMissing semantics."
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Performance/NonBlockingProtocols.swift",
+      "line": 49,
+      "description": "Error? is not Sendable. Storing Error directly breaks Swift 6 concurrency.",
+      "recommendation": "Create TranscriptionErrorInfo struct with String description instead of Error"
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 579,
+      "description": "nonisolated(unsafe) without documented safety justification.",
+      "recommendation": "Add SAFETY comment explaining why the unsafe pattern is thread-safe in this context"
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/DI/DIContainer.swift",
+      "line": 97,
+      "description": "Fire-and-forget Task in init may cause race conditions. Task created in init without await.",
+      "recommendation": "Make init async or use proper async initialization pattern"
     }
   ],
-  "high_critical_count": 2,
-  "scan_complete": true
+  "high_critical_count": 6,
+  "scan_complete": true,
+  "summary": {
+    "total_findings": 21,
+    "critical": 0,
+    "high": 6,
+    "medium": 6,
+    "low": 9,
+    "compliance": {
+      "parameterized_queries": "FAIL - Multiple URL injection vulnerabilities found via string interpolation",
+      "secrets_management": "FAIL - API keys stored as plain String instead of SecureString",
+      "least_privilege_keychain": "PASS - Uses kSecAttrAccessibleWhenUnlockedThisDeviceOnly",
+      "rate_limiting": "PASS - Exponential backoff with jitter implemented",
+      "permission_validation": "NOT_CHECKED - Requires separate permission audit"
+    }
+  }
 }

@@ -1,0 +1,58 @@
+{
+  "findings": [],
+  "high_critical_count": 0,
+  "scan_complete": true,
+  "swift_fixes_applied": [
+    {"file": "AssemblyAITranscriptionService.swift", "line": 434, "fix": "URLComponents", "finding_id": "SEC-001"},
+    {"file": "AssemblyAIBackend.swift", "line": 228, "fix": "URLComponents", "finding_id": "SEC-002"},
+    {"file": "MLXModelDownloader.swift", "line": 365, "fix": "URLComponents", "finding_id": "SEC-003"},
+    {"file": "AssemblyAITranscriptionService.swift", "line": 53, "fix": "SecureString", "finding_id": "SEC-004"},
+    {"file": "CloudTranscriptionConfiguration.swift", "line": 69, "fix": "SecureString", "finding_id": "SEC-005"},
+    {"file": "AssemblyAIBackend.swift", "line": 73, "fix": "SecureString", "finding_id": "SEC-006"}
+  ],
+  "dps8_compliance": {
+    "parameterized_queries": "PASS",
+    "secrets_management": "PASS",
+    "least_privilege": "PASS",
+    "rate_limiting": "PASS"
+  },
+  "swift_security_summary": {
+    "url_injection_fixes": {
+      "count": 3,
+      "pattern_used": "SecureURLConstruction",
+      "files_affected": [
+        "AssemblyAITranscriptionService.swift",
+        "AssemblyAIBackend.swift",
+        "MLXModelDownloader.swift"
+      ]
+    },
+    "api_key_exposure_fixes": {
+      "count": 3,
+      "pattern_used": "SecureString (~Copyable)",
+      "files_affected": [
+        "AssemblyAITranscriptionService.swift",
+        "CloudTranscriptionConfiguration.swift",
+        "AssemblyAIBackend.swift"
+      ]
+    }
+  },
+  "new_security_types_added": [
+    {
+      "file": "SecureString.swift",
+      "path": "OpenOats/Sources/OpenOats/Infrastructure/Security/SecureString.swift",
+      "features": [
+        "~Copyable struct for non-copyable semantics",
+        "ContiguousArray<UInt8> for raw byte storage",
+        "XOR obfuscation for memory dump resistance",
+        "withSecureAccess borrowing pattern for temporary access",
+        "Zeroing deinit to clear memory on destruction"
+      ]
+    }
+  ],
+  "swift_specific_patterns": {
+    "url_construction": "URLComponents with addingPercentEncoding for RFC 3986 compliance",
+    "secrets_management": "Non-copyable SecureString with RAII cleanup",
+    "path_traversal_defense": "Sanitization of '../' and '..' sequences",
+    "memory_safety": "Zeroing deinit prevents exposure in crash dumps"
+  }
+}

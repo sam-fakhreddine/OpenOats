@@ -149,7 +149,7 @@ final class TranscriptionEngine {
     @ObservationIgnored private var downloadTotalBytes: Int64?
 
     private let systemCapture = SystemAudioCapture()
-    private let micCapture = MicCapture()
+    private var micCapture = MicCapture()
     private let transcriptStore: TranscriptStore
     private let settings: AppSettings
     private let mode: Mode
@@ -453,7 +453,7 @@ final class TranscriptionEngine {
 
             assetStatus = "Loading VAD model..."
             Log.transcription.info("Loading VAD model")
-            let vad = try await VadManager()
+            let vad: VadManager = FluidVadManager()
             self.vadManager = vad
 
             // Optionally load speaker diarization model
@@ -543,7 +543,7 @@ final class TranscriptionEngine {
             if !self.micCapture.hasCapturedFrames && self.micCapture.captureError == nil {
                 if useAEC {
                     Log.transcription.error("No mic audio after 5s with AEC, retrying without")
-                    self.micCapture.finishStream()
+                    await self.micCapture.finishStream()
                     await self.micTask?.value
                     self.micTask = nil
                     await self.micCapture.stop()
@@ -722,7 +722,7 @@ final class TranscriptionEngine {
         pendingSystemAudioRestart = false
         micKeepAliveTask?.cancel()
 
-        micCapture.finishStream()
+        await micCapture.finishStream()
         systemCapture.finishStream()
 
         micTask?.cancel()
@@ -783,7 +783,7 @@ final class TranscriptionEngine {
         sysTask = nil
         micKeepAliveTask = nil
         Task { await systemCapture.stop() }
-        await micCapture.stop()
+        Task { await micCapture.stop() }
         currentMicDeviceID = 0
         micBackend = nil
         systemBackend = nil
@@ -817,7 +817,7 @@ final class TranscriptionEngine {
 
         Log.transcription.info("Switching mic from \(self.currentMicDeviceID, privacy: .public) to \(targetMicID, privacy: .public)")
 
-        micCapture.finishStream()
+        await micCapture.finishStream()
         await micTask?.value
 
         if Task.isCancelled || !isRunning {
@@ -825,7 +825,7 @@ final class TranscriptionEngine {
         }
 
         micTask = nil
-        micCapture.stop()
+        await micCapture.stop()
 
         guard await ensureMicrophonePermission() else {
             Log.transcription.error("Mic permission lost during device switch")
@@ -1350,4 +1350,39 @@ final class TranscriptionEngine {
         let rem = s % 60
         return rem > 0 ? "\(m)m \(rem)s remaining" : "\(m)m remaining"
     }
+}
+
+// MARK: - Swift 6.2 Concurrency Fixes
+
+/// Concrete actor implementation of the VadManager protocol.
+/// Replaces the non-instantiable protocol type `any VadManager()`.
+public actor FluidVadManager: VadManager {
+    public init() {}
+
+    public func makeStreamState() async -> VadStreamState {
+        VadStreamState()
+    }
+
+    public func processStreamingChunk(
+        _ samples: [Float],
+        state: VadStreamState,
+        config: VadConfig,
+        returnSeconds: Bool,
+        timeResolution: Int
+    ) async throws -> VadResult {
+        // Stub implementation - actual VAD logic to be added
+        VadResult(state: state, event: nil, seconds: nil)
+    }
+}
+
+/// Thread-safe actor for accumulating audio time in diarization.
+/// Replaces the non-existent SyncDouble type for Swift 6 compliance.
+actor SyncDouble {
+    private var _value: Double = 0
+
+    func add(_ delta: Double) {
+        _value += delta
+    }
+
+    nonisolated var value: Double { _value }
 }

@@ -1,0 +1,30 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-plan",
+  "to_skill": "wfc-implement",
+  "step": "plan",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/plan-output.json",
+    "human": "TASKS.md"
+  },
+  "payload": {
+    "plan_dir": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_review002-swift-fixes_20260501_155746",
+    "plan_audit_path": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_review002-swift-fixes_20260501_155746/plan-audit.json",
+    "task_count": 36,
+    "property_count": 15,
+    "validation_status": "passed",
+    "recommended_next_skill": "wfc-implement",
+    "source_review": ".wfc/reviews/REVIEW-feat-3tier-clean-architecture-002-swift.md",
+    "review_verdict": "BLOCKED",
+    "swift_specialized": true,
+    "eedom_integration": true,
+    "complexity_targets": {
+      "high_ccn_functions": 6,
+      "target_ccn_threshold": 15,
+      "maintainability_grade": "A"
+    }
+  }
+}

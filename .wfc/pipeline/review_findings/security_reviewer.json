@@ -1,0 +1,117 @@
+{
+  "reviewer": "security",
+  "findings": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 434,
+      "severity": 9,
+      "confidence": 9,
+      "category": "security",
+      "description": "URL injection vulnerability: Transcript ID interpolated directly into URL string without sanitization. Pattern: URL(string: \"https://api.assemblyai.com/v2/transcript/\\(id)\"). Attackers could inject path traversal or query parameters via malicious transcript ID.",
+      "remediation": "Use URLComponents with percent encoding: var components = URLComponents(string: \"https://api.assemblyai.com/v2/transcript\"); components?.path = \"/\" + id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed); guard let pollURL = components?.url else { throw TranscriptionError.invalidTranscriptID }"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 228,
+      "severity": 9,
+      "confidence": 9,
+      "category": "security",
+      "description": "URL injection vulnerability: Transcript ID directly interpolated into URL. Same pattern as AssemblyAITranscriptionService. No input validation on 'id' parameter.",
+      "remediation": "Replace string interpolation with URLComponents and percent-encode the id parameter before appending to path"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXModelDownloader.swift",
+      "line": 365,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "URL injection via string concatenation: baseURL and filename concatenated without validation. Pattern: URL(string: \"\\(baseURL)/\\(filename)\"). Could allow path traversal if filename contains '../' or malicious characters.",
+      "remediation": "Use URL.appendingPathComponent() or URLComponents: let base = URL(string: baseURL); guard let url = base?.appendingPathComponent(filename) else { throw ModelDownloadError.invalidURL }"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 53,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "API key exposure via plain String: API key returned as String from Keychain, can appear in memory dumps and crash logs. No SecureString wrapper with encrypted memory storage.",
+      "remediation": "Implement SecureString wrapper: struct SecureString { private var encryptedData: Data; func withDecryptedValue<T>(_ action: (String) throws -> T) rethrows -> T; func clear() }. Use SecRandomCopyBytes for encryption key."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/CloudTranscriptionConfiguration.swift",
+      "line": 69,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "API key property exposes plain String: apiKey property returns String? which remains in memory until garbage collected. Keychain retrieval decrypts to plain text.",
+      "remediation": "Replace String? return type with SecureString that stores encrypted and provides withSecureAccess pattern: public func withAPIKey<T>(_ action: (String?) throws -> T) rethrows -> T"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 73,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "API key stored as plain String property: private let apiKey: String stores API key in plain memory that can be extracted from memory dumps.",
+      "remediation": "Use SecureString wrapper with encrypted memory storage: private let apiKey: SecureString. Implement explicit cleanup in deinit."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 311,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL: URL(string: \"https://api.assemblyai.com/v2/transcript?limit=1\")! - Hardcoded URL but force unwrap is anti-pattern that could crash if URL becomes invalid through future changes.",
+      "remediation": "Use guard let: guard let url = URL(string: \"https://api.assemblyai.com/v2/transcript?limit=1\") else { throw TranscriptionError.invalidURL }"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 331,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL for upload endpoint: URL(string: \"https://api.assemblyai.com/v2/upload\")! - Same anti-pattern, could crash on initialization.",
+      "remediation": "Replace with guard let or use a static let with lazy initialization that throws proper error"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 388,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL for transcript endpoint: URL(string: \"https://api.assemblyai.com/v2/transcript\")! - Hardcoded but unsafe unwrap.",
+      "remediation": "Use static constants with proper error handling or enum-based URL construction"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 104,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL in API endpoint: URL(string: \"https://api.assemblyai.com/v2/transcript?limit=1\")! - Multiple force unwraps in same file.",
+      "remediation": "Consolidate URL construction to single method with proper error handling"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 160,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL for upload: URL(string: \"https://api.assemblyai.com/v2/upload\")! - Pattern repeated across multiple files.",
+      "remediation": "Centralize URL definitions in configuration with validation"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 199,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL for transcript creation: URL(string: \"https://api.assemblyai.com/v2/transcript\")! - Same issue as other endpoints.",
+      "remediation": "Create URL factory or configuration object with validated URLs"
+    }
+  ],
+  "high_count": 6,
+  "medium_count": 6,
+  "low_count": 0,
+  "status": "complete"
+}

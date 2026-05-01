@@ -1,0 +1,29 @@
+[
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift",
+    "line": 1,
+    "category": "maintainability",
+    "severity": 2,
+    "confidence": 9,
+    "description": "File is 1388 lines. Consider splitting into multiple files (Engine, Actors, Helpers).",
+    "remediation": "Extract FluidVadManager and SyncDouble to separate files in a Concurrency/Actors directory."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+    "line": 1,
+    "category": "maintainability",
+    "severity": 2,
+    "confidence": 9,
+    "description": "File is 823 lines with multiple types. Buffer structs could be extracted.",
+    "remediation": "Move CircularAudioBuffer and ChunkedSpeechBuffer to Infrastructure/Audio/AudioBuffers.swift."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+    "line": 40,
+    "category": "maintainability",
+    "severity": 1,
+    "confidence": 7,
+    "description": "Actor has mutable resampleBuffer but no cleanup method. Potential memory retention.",
+    "remediation": "Add cleanup() method to nil resampleBuffer when processor no longer needed."
+  }
+]

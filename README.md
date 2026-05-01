@@ -212,9 +212,29 @@ Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE
 
 ```
 OpenOats/             SwiftUI app (Swift Package)
+├─ Sources/OpenOats/
+│  ├─ Domain/         Entities, Errors, ValueObjects (zero deps)
+│  ├─ Business/       UseCases - business logic orchestration
+│  ├─ Infrastructure/ Services, Protocols, Actors (external concerns)
+│  ├─ Presentation/   ViewModels (SwiftUI + MVVM)
+│  └─ DI/             Dependency Injection container & factories
+├─ Tests/             Unit and performance tests
 scripts/              Build, sign, and package scripts
 assets/               Screenshot and app icon source
+docs/                 Architecture Decision Records (ADRs)
 ```
+
+### Architecture
+
+OpenOats follows **Clean Architecture** with 5 layers:
+
+1. **Domain** (innermost): Pure Swift structs, zero external dependencies, `Sendable`-safe
+2. **Business**: Actor-based UseCases with async/await concurrency
+3. **Infrastructure**: External services (transcription, audio, persistence) with actor isolation
+4. **Presentation**: `@MainActor` ViewModels, thin delegation to UseCases
+5. **DI**: Composition root with protocol-based dependency injection
+
+All layers comply with **Swift 6.2 Strict Concurrency** for compile-time data race safety.
 
 ## License
 

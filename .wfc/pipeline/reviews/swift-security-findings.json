@@ -1,0 +1,38 @@
+[
+  {
+    "file": "OpenOats/Sources/OpenOats/Infrastructure/Security/SecureString.swift",
+    "line": 51,
+    "category": "security",
+    "severity": 3,
+    "confidence": 8,
+    "description": "SecureString.withSecureAccess uses fatalError for invalid UTF-8. Consider throwing instead for production resilience.",
+    "remediation": "Replace fatalError with a throwing pattern or return Optional to prevent crashes from malformed data."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Infrastructure/Security/SecureString.swift", 
+    "line": 71,
+    "category": "security",
+    "severity": 3,
+    "confidence": 8,
+    "description": "SecureString.reveal() uses fatalError for invalid UTF-8. Same concern as withSecureAccess.",
+    "remediation": "Return Optional<String> instead of fatalError, allowing graceful degradation."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Storage/GranolaImporter.swift",
+    "line": 85,
+    "category": "security", 
+    "severity": 4,
+    "confidence": 7,
+    "description": "URLComponents construction uses force unwrap (!). While the URL is hardcoded, this pattern should be avoided for consistency.",
+    "remediation": "Use guard let or try pattern for URLComponents construction, consistent with SecureURLConstruction pattern."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Storage/GranolaImporter.swift",
+    "line": 113,
+    "category": "security",
+    "severity": 4,
+    "confidence": 7,
+    "description": "URLComponents with interpolated path uses force unwrap. ID injection possible if ID contains special characters.",
+    "remediation": "Use URLComponents with proper path component encoding, following SecureURLConstruction pattern."
+  }
+]

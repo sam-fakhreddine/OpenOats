@@ -1,0 +1,102 @@
+{
+  "agent": "swift-reliability",
+  "reliability_issues": 3,
+  "fixes": [
+    {
+      "file": "StreamingBufferProtocols.swift",
+      "line": 352,
+      "issue": "defer with async Task (unreliable cleanup)",
+      "current_code": "defer {\n    Task {\n        await bufferPool.release(&micBuffer)\n        await bufferPool.release(&sysBuffer)\n    }\n}",
+      "swift_fix": "Use explicit do/catch/finally cleanup pattern with structured error handling",
+      "fixed_code": "do {\n    // Process in fixed-size chunks\n    var micIterator = micStream.makeAsyncIterator()\n    var sysIterator = sysStream.makeAsyncIterator()\n    \n    processingLoop: while true {\n        // ... existing processing logic ...\n    }\n    \n    // Success path: release buffers\n    await bufferPool.release(&micBuffer)\n    await bufferPool.release(&sysBuffer)\n    \n} catch {\n    // Error path: always release buffers before re-throwing\n    await bufferPool.release(&micBuffer)\n    await bufferPool.release(&sysBuffer)\n    throw error\n}",
+      "risk": "Resource leak - buffers not returned to pool. Fire-and-forget Task in defer may never execute if actor is deallocated or task is cancelled.",
+      "risk_severity": "HIGH",
+      "swift_principle": "defer blocks execute synchronously. async Task in defer = fire-and-forget with no completion guarantee. In actors, these orphaned Tasks may never execute.",
+      "estimated_time": "20 min"
+    },
+    {
+      "file": "ImportAudioUseCase.swift",
+      "line": 181,
+      "issue": "[weak self] in actor prevents progress updates",
+      "current_code": "progressHandler: { progress in\n    let adjustedProgress = 0.6 + (progress.percentage * 0.3)\n    self.reportProgress(adjustedProgress)\n}",
+      "swift_fix": "Remove [weak self] - actors don't need weak capture for isolated methods",
+      "fixed_code": "progressHandler: { [self] progress in\n    let adjustedProgress = 0.6 + (progress.percentage * 0.3)\n    reportProgress(adjustedProgress)\n}",
+      "risk": "Progress updates lost - user sees stuck UI at 60%. Self is captured but [weak self] pattern from classes incorrectly applied to actor.",
+      "risk_severity": "MEDIUM",
+      "swift_principle": "Actors have different memory model than classes. [weak self] in actor closures prevents proper self capture, causing silent failures. Use [self] for strong capture or rely on implicit capture for Sendable closures.",
+      "estimated_time": "2 min"
+    },
+    {
+      "file": "GenerateNotesUseCase.swift",
+      "line": 72,
+      "issue": "Manual isCancelled flag (not synchronized)",
+      "current_code": "private var isCancelled = false\nfunc cancel() { isCancelled = true }\n\nprivate func checkCancelled() async throws {\n    if isCancelled {\n        throw CancellationError()\n    }\n}",
+      "swift_fix": "Use Task.isCancelled and Task.checkCancellation() exclusively",
+      "fixed_code": "// Remove: private var isCancelled = false\n// Remove: private func checkCancelled()\n\npublic func cancel() async {\n    currentTask?.cancel()\n}\n\npublic func execute(input: GenerateNotesInput) async throws -> GenerateNotesOutput {\n    let startTime = Date()\n    \n    let task = Task { () -> GenerateNotesOutput in\n        // Use idiomatic cancellation checks\n        try Task.checkCancellation()\n        \n        // Retrieve the transcript\n        let transcriptResult = await self.transcriptRepository.get(by: input.transcriptID)\n        // ... rest of implementation ...\n        \n        // Between major phases:\n        try Task.checkCancellation()\n        \n        // LLM call\n        let llmResult = await self.llmService.complete(...)\n        try Task.checkCancellation()  // Check after async boundary\n        \n        // ... remainder of work ...\n    }\n    \n    self.currentTask = task\n    return try await task.value\n}",
+      "risk": "Race condition - manual flag not synchronized with actor isolation. May miss cancellation signals or continue executing after cancel() called.",
+      "risk_severity": "HIGH",
+      "swift_principle": "Manual cancellation flags are unsafe in concurrent contexts. Task provides built-in cooperative cancellation: Task.isCancelled (property), Task.checkCancellation() (throws), withCheckedContinuation(checkingCancellation:). These integrate with Swift's structured concurrency.",
+      "estimated_time": "10 min"
+    }
+  ],
+  "additional_findings": [
+    {
+      "file": "StreamingBufferProtocols.swift",
+      "line": 587,
+      "issue": "[weak self] in actor Task closure may cause transcription result to be lost",
+      "current_code": "let task = Task { [weak self, chunk] in\n    // ... transcription work ...\n    await self?.clearActiveTask()\n}",
+      "swift_fix": "Use [self] for strong capture - actor ensures proper isolation",
+      "risk": "Transcription task completes but self has become nil, result lost",
+      "risk_severity": "MEDIUM",
+      "swift_principle": "Inside actor-isolated code, self is always valid. [weak self] introduces unnecessary nil-checking and potential data loss."
+    },
+    {
+      "file": "StreamingBufferProtocols.swift",
+      "line": 609,
+      "issue": "AsyncStream termination not explicitly handled in StreamingSpeechProcessor",
+      "current_code": "// AsyncStream used but no explicit termination handling in transcribeChunk",
+      "swift_fix": "Use for-await with explicit termination or Task.withCheckedThrowingContinuation",
+      "risk": "Stream may hang if producer stops without terminating, causing memory leak",
+      "risk_severity": "LOW",
+      "swift_principle": "AsyncThrowingStream requires explicit termination (continuation.finish() or continuation.yield with error) or the consumer may await indefinitely."
+    }
+  ],
+  "reliability_score_improvement": "B+ → A",
+  "summary": {
+    "total_issues": 5,
+    "critical_fixes": 3,
+    "patterns_violated": [
+      "defer + async Task anti-pattern",
+      "[weak self] in actors anti-pattern", 
+      "Manual cancellation flags anti-pattern"
+    ],
+    "swift_concurrency_principles": [
+      "defer executes synchronously - never use async Task inside",
+      "Actors have value-semantics for isolation - [weak self] is usually wrong",
+      "Use Task.checkCancellation() for cooperative cancellation",
+      "Always pair buffer acquisition with guaranteed release (defer only for sync cleanup)"
+    ]
+  },
+  "implementation_order": [
+    {
+      "order": 1,
+      "file": "StreamingBufferProtocols.swift:352",
+      "reason": "Resource leak - highest severity, affects all streaming operations"
+    },
+    {
+      "order": 2,
+      "file": "GenerateNotesUseCase.swift:72",
+      "reason": "Race condition - cancellation may not work reliably"
+    },
+    {
+      "order": 3,
+      "file": "ImportAudioUseCase.swift:181",
+      "reason": "UX issue - progress stuck, quick fix"
+    },
+    {
+      "order": 4,
+      "file": "StreamingBufferProtocols.swift:587",
+      "reason": "Secondary issue - transcription result reliability"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "reviewer": "reliability",
+  "findings": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 352,
+      "severity": 9,
+      "confidence": 9,
+      "category": "reliability",
+      "description": "Defer with async Task is unreliable for cleanup. The defer block creates a fire-and-forget Task for buffer release. If the function exits due to error or cancellation, the Task may not execute before process termination or resource cleanup. No guarantee buffers are returned to pool.",
+      "remediation": "Use explicit cleanup with do-catch-finally pattern: do { ... return result } catch { await cleanup(); throw error } finally { await bufferPool.release(&micBuffer); await bufferPool.release(&sysBuffer) }. Or use withExtendedLifetime."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 177,
+      "severity": 7,
+      "confidence": 8,
+      "category": "reliability",
+      "description": "No file size validation before loading audio data into memory. try Data(contentsOf: audioURL) loads entire file without checking size first. Large files could cause OOM crash.",
+      "remediation": "Add size validation: let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path); let fileSize = attributes[.size] as? UInt64 ?? 0; guard fileSize < maxFileSize else { throw TranscriptionError.fileTooLarge(size: fileSize, max: maxFileSize) }; let audioData = try Data(contentsOf: audioURL, options: .mappedIfSafe)."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Business/UseCases/GenerateNotesUseCase.swift",
+      "line": 72,
+      "severity": 6,
+      "confidence": 7,
+      "category": "reliability",
+      "description": "Manual isCancelled flag instead of Task.isCancelled. Custom flag may not be synchronized properly with Task cancellation and could lead to continuing work after cancellation requested.",
+      "remediation": "Remove manual flag and use Task.checkCancellation() exclusively: while !Task.isCancelled { ... } or try Task.checkCancellation() at key points."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 145,
+      "severity": 7,
+      "confidence": 8,
+      "category": "reliability",
+      "description": "Cancellation handling in run() is basic - only checks Task.isCancelled at loop start. Long-running operations within loop (transcribe, VAD) don't check cancellation during execution.",
+      "remediation": "Add cancellation checks throughout: try Task.checkCancellation() before and after transcribe call; add timeout for partial transcription with withTimeoutOrNil."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 436,
+      "severity": 6,
+      "confidence": 8,
+      "category": "reliability",
+      "description": "Fixed 120 poll attempts with 500ms interval = 60 second timeout. No adaptive timeout based on audio duration or server load. Could fail for long files that need more time.",
+      "remediation": "Calculate dynamic timeout: let expectedDuration = validation.duration?.components.seconds ?? 60; let maxPollAttempts = max(120, Int(expectedDuration * 2)) // Allow 2x real-time processing."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXModelDownloader.swift",
+      "line": 333,
+      "severity": 6,
+      "confidence": 7,
+      "category": "reliability",
+      "description": "Resume support commented but not implemented: if supportsResume { // This would check partial file and add Range header }. The supportsResume parameter is ignored.",
+      "remediation": "Implement resume: guard supportsResume, let partialSize = fileSize(partialFile) else { return }; request.setValue(\"bytes=\\(partialSize)-\", forHTTPHeaderField: \"Range\"); use URLSession downloadTask with resume data."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitTranscriptionService.swift",
+      "line": 460,
+      "severity": 6,
+      "confidence": 7,
+      "category": "reliability",
+      "description": "accumulatedSamples grows unbounded in streaming transcription. No upper limit on buffer - for long streams could cause memory pressure. samples appended continuously without chunking.",
+      "remediation": "Add chunking: if accumulatedSamples.count > maxChunkSize { let chunk = Array(accumulatedSamples.prefix(maxChunkSize)); accumulatedSamples.removeFirst(maxChunkSize - overlap); await processChunk(chunk) }."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 224,
+      "severity": 5,
+      "confidence": 7,
+      "category": "reliability",
+      "description": "recentChunks eviction uses removeFirst which is O(n). Not a functional bug but causes latency spikes during speech detection that could drop audio frames.",
+      "remediation": "Use CircularBuffer for recentChunks as well: private var recentChunks = CircularBuffer<[Float]>(capacity: prerollChunkCount). Automatic eviction without O(n) shift."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 543,
+      "severity": 6,
+      "confidence": 7,
+      "category": "reliability",
+      "description": "Retry logic uses throw lastError! which will crash if all retries fail and lastError is nil (edge case but possible if all attempts throw non-recoverable errors before assignment).",
+      "remediation": "Use nil-coalescing with default error: throw lastError ?? TranscriptionError.backendFailed(backend: backendID.rawValue, reason: \"All retries exhausted\", recoverable: true)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 255,
+      "severity": 5,
+      "confidence": 6,
+      "category": "reliability",
+      "description": "Partial transcription errors silently ignored: catch { // Best-effort — ignore }. Transcription failures during partials provide no feedback to user or logs.",
+      "remediation": "Log errors: catch { Log.streaming.warning(\"Partial transcription failed: \\(error)\") }. Consider surfacing to user after repeated failures."
+    }
+  ],
+  "high_count": 0,
+  "medium_count": 6,
+  "low_count": 4,
+  "status": "complete"
+}

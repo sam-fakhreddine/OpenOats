@@ -1,0 +1,64 @@
+{
+  "skill": "wfc-docs",
+  "run_id": "swift-remediation-20260501",
+  "started_at": "2026-05-01T16:30:00Z",
+  "agents_spawned": ["readme", "changelog", "architecture", "inline", "config"],
+  "agents_completed": ["readme", "changelog", "architecture", "inline", "config"],
+  "gaps_found": [
+    "CHANGELOG-001",
+    "README-001",
+    "README-002"
+  ],
+  "gaps_closed": 0,
+  "gaps_remaining": 3,
+  "last_updated": "2026-05-01T16:35:00Z",
+  "audit_results": {
+    "readme": {
+      "gaps": [
+        {
+          "gap_id": "README-001",
+          "dimension": "readme",
+          "target_file": "README.md",
+          "target_file_action": "update",
+          "section": "What you need",
+          "description": "Add Swift 6.2 Strict Concurrency requirement note",
+          "priority": "recommended",
+          "source_reference": "docs/adr/004-swift-6.2-strict-concurrency.md"
+        },
+        {
+          "gap_id": "README-002",
+          "dimension": "readme",
+          "target_file": "README.md",
+          "target_file_action": "update",
+          "section": "Repo layout",
+          "description": "Add architecture layers documentation (Domain/Business/Infrastructure/Presentation/DI)",
+          "priority": "recommended",
+          "source_reference": "docs/adr/002-adopt-3tier-clean-architecture.md"
+        }
+      ]
+    },
+    "changelog": {
+      "gaps": [
+        {
+          "gap_id": "CHANGELOG-001",
+          "dimension": "changelog",
+          "target_file": "CHANGELOG.md",
+          "target_file_action": "create",
+          "section": "[Unreleased]",
+          "description": "Create CHANGELOG.md with Swift 6.2 remediation summary",
+          "priority": "required",
+          "source_reference": ".wfc/reviews/REVIEW-feat-3tier-clean-architecture-002-swift.md"
+        }
+      ]
+    },
+    "architecture": {
+      "gaps": []
+    },
+    "inline": {
+      "gaps": []
+    },
+    "config": {
+      "gaps": []
+    }
+  }
+}

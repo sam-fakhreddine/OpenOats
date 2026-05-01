@@ -67,10 +67,12 @@ extension CloudASRError {
 
 /// Cloud transcription backend using the AssemblyAI REST API.
 /// @unchecked Sendable: session and prepared are written once in prepare() before any transcribe() calls.
+@available(macOS 15.0, *)
 final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName = "AssemblyAI"
 
-    private let apiKey: String
+    // SEC-006 Fix: Use SecureString instead of plain String for API key
+    private let secureAPIKey: SecureString
     private let customSpelling: [[String: Any]]
     private let session: URLSession
     private var prepared = false
@@ -80,7 +82,8 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
     // MARK: - Init
 
     init(apiKey: String, customVocabulary: String = "") {
-        self.apiKey = apiKey
+        // SEC-006 Fix: Wrap API key in SecureString immediately
+        self.secureAPIKey = SecureString(apiKey)
         self.customSpelling = Self.parseCustomSpelling(customVocabulary)
         self.session = URLSession(configuration: .ephemeral)
     }
@@ -95,24 +98,27 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         onStatus: @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        guard !apiKey.isEmpty else {
+        guard !secureAPIKey.isEmpty else {
             throw CloudASRError.invalidAPIKey(backend: "AssemblyAI")
         }
 
         onStatus("Validating AssemblyAI API key...")
-
-        var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript?limit=1")!)
-        request.httpMethod = "GET"
-        request.setValue(apiKey, forHTTPHeaderField: "Authorization")
-
-        let (_, response) = try await session.data(for: request)
-
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 || http.statusCode == 403 {
-                throw CloudASRError.invalidAPIKey(backend: "AssemblyAI")
-            }
-            if !(200 ..< 300).contains(http.statusCode) {
-                throw CloudASRError.httpError(statusCode: http.statusCode)
+        
+        // Use withSecureAccess to temporarily access the API key
+        try await secureAPIKey.withSecureAccess { apiKey in
+            var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript?limit=1")!)
+            request.httpMethod = "GET"
+            request.setValue(apiKey, forHTTPHeaderField: "Authorization")
+            
+            let (_, response) = try await session.data(for: request)
+            
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw CloudASRError.invalidAPIKey(backend: "AssemblyAI")
+                }
+                if !(200 ..< 300).contains(http.statusCode) {
+                    throw CloudASRError.httpError(statusCode: http.statusCode)
+                }
             }
         }
 
@@ -130,7 +136,7 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         // 1. Encode audio as WAV
         let wavData = WAVEncoder.encode(samples: samples)
 
-        // 2. Upload audio
+        // 2. Upload audio (uses secureAPIKey internally)
         let uploadURL = try await upload(wavData)
 
         // 3. Validate upload URL
@@ -142,13 +148,13 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
             throw CloudASRError.invalidUploadURL
         }
 
-        // 4. Create transcript
+        // 4. Create transcript (uses secureAPIKey internally)
         let transcriptID = try await createTranscript(
             audioURL: uploadURL,
             locale: locale
         )
 
-        // 5. Poll for completion
+        // 5. Poll for completion (uses secureAPIKey internally)
         let text = try await pollTranscript(id: transcriptID)
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -157,24 +163,26 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
     // MARK: - Private: Upload
 
     private func upload(_ data: Data) async throws -> URL {
-        var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/upload")!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "Authorization")
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.httpBody = data
+        try await secureAPIKey.withSecureAccess { apiKey in
+            var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/upload")!)
+            request.httpMethod = "POST"
+            request.setValue(apiKey, forHTTPHeaderField: "Authorization")
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.httpBody = data
 
-        return try await withTransientRetry { [session] in
-            let (responseData, response) = try await session.data(for: request)
-            try self.checkHTTPStatus(response)
+            return try await withTransientRetry { [session] in
+                let (responseData, response) = try await session.data(for: request)
+                try self.checkHTTPStatus(response)
 
-            let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-            guard let urlString = json?["upload_url"] as? String,
-                  let url = URL(string: urlString)
-            else {
-                throw CloudASRError.invalidUploadURL
+                let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+                guard let urlString = json?["upload_url"] as? String,
+                      let url = URL(string: urlString)
+                else {
+                    throw CloudASRError.invalidUploadURL
+                }
+
+                return url
             }
-
-            return url
         }
     }
 
@@ -195,67 +203,73 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         if !customSpelling.isEmpty {
             body["custom_spelling"] = customSpelling
         }
+        
+        return try await secureAPIKey.withSecureAccess { apiKey in
+            var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript")!)
+            request.httpMethod = "POST"
+            request.setValue(apiKey, forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript")!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            return try await withTransientRetry { [session] in
+                let (responseData, response) = try await session.data(for: request)
 
-        return try await withTransientRetry { [session] in
-            let (responseData, response) = try await session.data(for: request)
+                // Log diagnostic info for client errors before throwing
+                if let http = response as? HTTPURLResponse, (400 ..< 500).contains(http.statusCode) {
+                    let errorMessage = (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["error"] as? String
+                    Self.log.error("Transcript creation failed (HTTP \(http.statusCode, privacy: .public)): \(errorMessage ?? "unknown", privacy: .public)")
+                }
 
-            // Log diagnostic info for client errors before throwing
-            if let http = response as? HTTPURLResponse, (400 ..< 500).contains(http.statusCode) {
-                let errorMessage = (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["error"] as? String
-                Self.log.error("Transcript creation failed (HTTP \(http.statusCode, privacy: .public)): \(errorMessage ?? "unknown", privacy: .public)")
+                try self.checkHTTPStatus(response)
+
+                let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+                guard let id = json?["id"] as? String else {
+                    throw CloudASRError.transcriptionFailed("Missing transcript ID in response.")
+                }
+
+                return id
             }
-
-            try self.checkHTTPStatus(response)
-
-            let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-            guard let id = json?["id"] as? String else {
-                throw CloudASRError.transcriptionFailed("Missing transcript ID in response.")
-            }
-
-            return id
         }
     }
 
     // MARK: - Private: Poll
 
     private func pollTranscript(id: String) async throws -> String {
-        let url = URL(string: "https://api.assemblyai.com/v2/transcript/\(id)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(apiKey, forHTTPHeaderField: "Authorization")
+        // SEC-002 Fix: Use SecureURLConstruction to prevent URL injection
+        let url = try SecureURLConstruction.pollURL(forTranscriptID: id)
+        
+        return try await secureAPIKey.withSecureAccess { apiKey in
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue(apiKey, forHTTPHeaderField: "Authorization")
 
-        for _ in 0 ..< 120 {
-            try Task.checkCancellation()
-            try await Task.sleep(for: .milliseconds(500))
+            for _ in 0 ..< 120 {
+                try Task.checkCancellation()
+                try await Task.sleep(for: .milliseconds(500))
 
-            let (data, response) = try await session.data(for: request)
-            try checkHTTPStatus(response)
+                let (data, response) = try await session.data(for: request)
+                try checkHTTPStatus(response)
 
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let status = json?["status"] as? String
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let status = json?["status"] as? String
 
-            switch status {
-            case "completed":
-                let text = json?["text"] as? String ?? ""
-                Self.log.info("Transcript \(id) completed")
-                return text
-            case "error":
-                let errorMessage = json?["error"] as? String ?? "Unknown error"
-                Self.log.error("Transcript \(id) failed: \(errorMessage)")
-                throw CloudASRError.transcriptionFailed(errorMessage)
-            default:
-                continue
+                switch status {
+                case "completed":
+                    let text = json?["text"] as? String ?? ""
+                    Self.log.info("Transcript \(id) completed")
+                    return text
+                case "error":
+                    let errorMessage = json?["error"] as? String ?? "Unknown error"
+                    Self.log.error("Transcript \(id) failed: \(errorMessage)")
+                    throw CloudASRError.transcriptionFailed(errorMessage)
+                default:
+                    continue
+                }
             }
-        }
 
-        Self.log.error("Transcript \(id) timed out after 60s")
-        throw CloudASRError.timeout
+            Self.log.error("Transcript \(id) timed out after 60s")
+            throw CloudASRError.timeout
+        }
     }
 
     // MARK: - Private: HTTP Status Check

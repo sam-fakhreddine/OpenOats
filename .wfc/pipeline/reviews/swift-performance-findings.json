@@ -1,0 +1,29 @@
+[
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+    "line": 88,
+    "category": "performance",
+    "severity": 2,
+    "confidence": 8,
+    "description": "ChunkedSpeechBuffer.asContiguousArray() uses flatMap which is O(n). Consider lazy evaluation for large buffers.",
+    "remediation": "For very large buffers, consider returning a custom Sequence view instead of flattening eagerly."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+    "line": 194,
+    "category": "performance",
+    "severity": 3,
+    "confidence": 7,
+    "description": "Multi-channel mixing uses scalar loop before vDSP. Could use vDSP_vgathr for better vectorization.",
+    "remediation": "For >2 channels, pre-extract all channels with vDSP then mix pairwise for full vectorization."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+    "line": 51,
+    "category": "performance",
+    "severity": 1,
+    "confidence": 6,
+    "description": "resampleBuffer is preallocated but capacity not reserved. May cause reallocation during resampling.",
+    "remediation": "Reserve capacity based on expected maximum resample output size."
+  }
+]

@@ -1,34 +1,250 @@
 {
-  "schema_version": "3.0",
-  "from_skill": "wfc-review",
-  "to_skill": "wfc-pm",
-  "step": "review",
-  "status": "ok",
-  "handoff_ready": true,
-  "escalation": {"level": "none", "reason": "", "owner": "skill"},
-  "artifacts": {
-    "machine": ".wfc/pipeline/review-output.json",
-    "human": ".wfc/reviews/REVIEW-base-branch-fixes-001.md"
-  },
-  "payload": {
-    "verdict": "PASSED",
-    "consensus_score": 5.8,
-    "r_max": 7.0,
-    "r_p75": 6.0,
-    "r_p50": 5.0,
-    "max_agreement": 2,
-    "total_findings": 35,
-    "high_critical_count": 0,
-    "reviewers_spawned": ["Security", "Correctness", "Performance", "Maintainability", "Reliability"],
-    "findings_by_category": {
-      "security": 6,
-      "correctness": 0,
-      "performance": 11,
-      "maintainability": 7,
-      "reliability": 11
+  "verdict": "BLOCKED",
+  "consensus_score": 7.5,
+  "findings": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 434,
+      "severity": 9,
+      "confidence": 9,
+      "category": "security",
+      "description": "URL injection vulnerability: Transcript ID interpolated directly into URL string without sanitization. Pattern: URL(string: \"https://api.assemblyai.com/v2/transcript/\\(id)\"). Attackers could inject path traversal or query parameters.",
+      "remediation": "Use URLComponents with percent encoding: var components = URLComponents(string: \"https://api.assemblyai.com/v2/transcript\"); components?.path = \"/\" + id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed); guard let pollURL = components?.url else { throw TranscriptionError.invalidTranscriptID }"
     },
-    "blocking_rules_triggered": [],
-    "review_iterations": 1,
-    "report_path": ".wfc/reviews/REVIEW-base-branch-fixes-001.md"
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 228,
+      "severity": 9,
+      "confidence": 9,
+      "category": "security",
+      "description": "URL injection vulnerability: Transcript ID directly interpolated into URL without validation or encoding.",
+      "remediation": "Replace string interpolation with URLComponents and percent-encode the id parameter"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXModelDownloader.swift",
+      "line": 365,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "URL injection via string concatenation: baseURL and filename concatenated without validation. Could allow path traversal if filename contains '../'.",
+      "remediation": "Use URL.appendingPathComponent(): guard let url = base?.appendingPathComponent(filename) else { throw ModelDownloadError.invalidURL }"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 53,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "API key exposure via plain String: API key returned as String from Keychain, can appear in memory dumps and crash logs.",
+      "remediation": "Implement SecureString wrapper with encrypted memory storage and withDecryptedValue access pattern"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/CloudTranscriptionConfiguration.swift",
+      "line": 69,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "API key property exposes plain String: apiKey property returns String? which remains in memory until garbage collected.",
+      "remediation": "Replace String? with SecureString that stores encrypted and provides withSecureAccess pattern"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 73,
+      "severity": 8,
+      "confidence": 8,
+      "category": "security",
+      "description": "API key stored as plain String property: private let apiKey: String stores API key in plain memory extractable from memory dumps.",
+      "remediation": "Use SecureString wrapper with encrypted memory storage and explicit cleanup in deinit"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 186,
+      "severity": 9,
+      "confidence": 9,
+      "category": "performance",
+      "description": "O(n) array shift in VAD loop: vadBuffer.removeFirst(vadReadIndex) triggers array reallocation and memory copy every VAD chunk (every 256ms), causing O(n^2) total complexity.",
+      "remediation": "Replace Array with CircularBuffer: private var vadBuffer = CircularAudioBuffer(capacity: 16000 * 10). Avoids O(n) shift."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 528,
+      "severity": 9,
+      "confidence": 9,
+      "category": "performance",
+      "description": "Unbounded array growth for speech samples: speechSamples.append has no upper bound. For 2-hour meeting = 115M samples = ~460MB memory, can cause memory pressure crash.",
+      "remediation": "Use fixed-size circular buffer with flush every 30 seconds via CircularAudioBuffer"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 352,
+      "severity": 9,
+      "confidence": 9,
+      "category": "reliability",
+      "description": "Defer with async Task is unreliable for cleanup. Fire-and-forget Task may not execute before process termination or resource cleanup. No guarantee buffers are returned to pool.",
+      "remediation": "Use explicit cleanup in do-catch-finally pattern instead of defer with async Task"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/DI/DIContainer.swift",
+      "line": 97,
+      "severity": 8,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "Fire-and-forget Task in actor init creates race condition. Task may execute after other init code runs, causing inconsistent state.",
+      "remediation": "Remove fire-and-forget Task. Make init async or use @MainActor init. Consider factory pattern for async initialization."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 352,
+      "severity": 8,
+      "confidence": 9,
+      "category": "correctness",
+      "description": "Defer with async operations is unreliable in Swift. The defer block creates a Task for async buffer release, but defer runs when function exits - Task may not complete properly.",
+      "remediation": "Replace defer with explicit cleanup: do { ... } catch { ... } await bufferPool.release(&micBuffer)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 147,
+      "severity": 8,
+      "confidence": 9,
+      "category": "maintainability",
+      "description": "run() method CCN 29 exceeds threshold of 15. Method is 130+ lines with nested if/else, switch statements, and async calls. High complexity makes testing difficult.",
+      "remediation": "Extract methods: processVADState(), handleSpeechStart(), handleSpeechEnd(), processPartialTranscription(). Reduces run() to ~30 lines."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 138,
+      "severity": 8,
+      "confidence": 9,
+      "category": "maintainability",
+      "description": "transcribeFile() method CCN 26 exceeds threshold. 100+ line method with validation, upload, polling, and error handling intertwined.",
+      "remediation": "Split into phase methods: uploadPhase(), createTranscriptPhase(), pollPhase(). Each < 30 lines."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 318,
+      "severity": 8,
+      "confidence": 9,
+      "category": "maintainability",
+      "description": "mergeStreams() method CCN 22 exceeds threshold. Complex async stream handling with multiple nested loops and buffer management. 95+ lines.",
+      "remediation": "Extract stream filling logic: fillBuffer(from:into:count:); Extract mixing: mixAndWrite(mic:sys:micCount:sysCount:)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 311,
+      "severity": 6,
+      "confidence": 9,
+      "category": "security",
+      "description": "Force unwrapped URL creation. URL(string:) force unwrap without validation could crash if URL becomes invalid through future changes.",
+      "remediation": "Use guard let with proper error handling instead of force unwrap"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+      "line": 171,
+      "severity": 7,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar deinterleave loop in convertToMono should use vDSP_deqinterleave for vectorized processing.",
+      "remediation": "Use vDSP_deqinterleave(src.baseAddress!, &leftChannel, &rightChannel, vDSP_Length(frameCount), 2)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitAudioProcessor.swift",
+      "line": 267,
+      "severity": 7,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar channel extraction in extractFloatSamples is O(n*m) instead of using vDSP or memcpy.",
+      "remediation": "Use memcpy for contiguous blocks: memcpy(&samples[channel * frameLength], channelData[channel], frameLength * MemoryLayout<Float>.size)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitAudioProcessor.swift",
+      "line": 282,
+      "severity": 7,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar mixing in mixToMono is O(n*m) scalar loop instead of vDSP vectorized operations.",
+      "remediation": "Use vDSP for mixing with weight array and vectorized sum operations"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitTranscriptionService.swift",
+      "line": 59,
+      "severity": 7,
+      "confidence": 9,
+      "category": "correctness",
+      "description": "@unchecked Sendable on actor is redundant. Actors are implicitly Sendable in Swift 6.",
+      "remediation": "Remove @unchecked Sendable from actor declaration"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Performance/NonBlockingProtocols.swift",
+      "line": 49,
+      "severity": 7,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "Error? is not Sendable. Storing Error directly breaks Swift 6 concurrency checks.",
+      "remediation": "Create TranscriptionErrorInfo struct with String description instead of Error"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Business/UseCases/ImportAudioUseCase.swift",
+      "line": 181,
+      "severity": 6,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "[weak self] in actor-isolated context is unnecessary and potentially problematic. Weak capture could prevent progress updates.",
+      "remediation": "Remove [weak self] - actors don't need weak capture for internal closures"
+    }
+  ],
+  "high_critical_count": 9,
+  "review_complete": true,
+  "reviewers_spawned": 5,
+  "swift_specialized": true,
+  "summary": {
+    "total_findings": 21,
+    "by_severity": {
+      "critical_10": 0,
+      "high_9": 3,
+      "high_8": 9,
+      "medium_7": 4,
+      "medium_6": 3,
+      "low_5": 2
+    },
+    "by_category": {
+      "security": 6,
+      "correctness": 4,
+      "performance": 5,
+      "maintainability": 3,
+      "reliability": 3
+    },
+    "blocking_findings": [
+      "AssemblyAITranscriptionService.swift:434 - URL injection (S=9, C=9)",
+      "AssemblyAIBackend.swift:228 - URL injection (S=9, C=9)",
+      "StreamingTranscriber.swift:186 - O(n) array shift (S=9, C=9)",
+      "StreamingTranscriber.swift:528 - Unbounded buffer growth (S=9, C=9)",
+      "StreamingBufferProtocols.swift:352 - Defer async cleanup (S=9, C=9)"
+    ]
+  },
+  "consensus_calculation": {
+    "formula": "CS = 10 - (weighted_sum / total_findings)",
+    "weights": "S9-10:3.0, S7-8:2.0, S5-6:1.0, S<5:0.5",
+    "weighted_sum": 47.0,
+    "total_findings": 21,
+    "raw_score": 7.76,
+    "rounded": 7.5
+  },
+  "recommendations": {
+    "immediate": [
+      "Fix all 3 URL injection vulnerabilities with URLComponents",
+      "Fix defer+async in StreamingBufferProtocols with explicit cleanup",
+      "Add bounds checking to speechSamples array in StreamingTranscriber"
+    ],
+    "before_merge": [
+      "Implement SecureString for API key storage",
+      "Fix DIContainer race condition in initialization",
+      "Replace scalar DSP loops with vDSP operations",
+      "Reduce complexity in run() and transcribeFile() methods"
+    ],
+    "follow_up": [
+      "Add comprehensive security tests for URL construction",
+      "Add memory pressure tests for long recordings",
+      "Implement cancellation propagation tests"
+    ]
   }
 }

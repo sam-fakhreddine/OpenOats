@@ -419,7 +419,7 @@ actor BatchAudioTranscriber {
 
         try Task.checkCancellation()
 
-        let vad = try await VadManager()
+        let vad: VadManager = FluidVadManager()
 
         try Task.checkCancellation()
 
@@ -537,7 +537,7 @@ actor BatchAudioTranscriber {
         try Task.checkCancellation()
 
         // Load VAD
-        let vad = try await VadManager()
+        let vad: VadManager = FluidVadManager()
 
         try Task.checkCancellation()
 

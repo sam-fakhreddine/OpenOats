@@ -1,0 +1,71 @@
+{
+  "agent": "swift-correctness",
+  "compilation_errors": 7,
+  "fixes": [
+    {
+      "line": 172,
+      "error": "Cannot assign to 'let' constant micCapture",
+      "root_cause": "MicCapture is a struct (value type) declared as 'let' on line 152. Swift prohibits mutating properties of let-bound value types, even when the properties have nonisolated setters.",
+      "swift_fix": "Change line 152 from 'private let micCapture = MicCapture()' to 'private var micCapture = MicCapture()'. The struct is Sendable and all its state is properly lock-protected, so var is safe.",
+      "estimated_time": "2 min"
+    },
+    {
+      "line": 456,
+      "error": "'any VadManager' has no accessible initializers",
+      "root_cause": "VadManager is a protocol (StreamingTranscriber.swift:665), not a concrete type. Protocols cannot be directly instantiated with (). No concrete implementation exists in the production codebase - only MockVadManager in tests.",
+      "swift_fix": "Create a concrete FluidVadManager actor implementing VadManager protocol, then change line 456 to: 'let vad = await FluidVadManager()'. Also fix the same pattern in BatchAudioTranscriber.swift lines 422 and 540.",
+      "estimated_time": "15 min (includes creating FluidVadManager)"
+    },
+    {
+      "line": 546,
+      "error": "Async call not marked with 'await'",
+      "root_cause": "finishStream() is async (MicCapture.swift:445) but called without await inside a Task { @MainActor } block.",
+      "swift_fix": "Change line 546 from 'self.micCapture.finishStream()' to 'await self.micCapture.finishStream()'",
+      "estimated_time": "1 min"
+    },
+    {
+      "line": 725,
+      "error": "Async call not marked with 'await'",
+      "root_cause": "finishStream() is async (MicCapture.swift:445) but called without await in the async finalize() function.",
+      "swift_fix": "Change line 725 from 'micCapture.finishStream()' to 'await micCapture.finishStream()'",
+      "estimated_time": "1 min"
+    },
+    {
+      "line": 786,
+      "error": "Async call in non-async function",
+      "root_cause": "stop() function (line 760) is not marked async but line 786 calls 'await micCapture.stop()'. The function mixes sync and async operations incorrectly.",
+      "swift_fix": "Option A (recommended): Change line 786 to 'Task { await micCapture.stop() }' to match line 785's pattern. Option B: Mark stop() as async and propagate changes to all callers.",
+      "estimated_time": "3 min"
+    },
+    {
+      "line": 820,
+      "error": "Async call not marked with 'await'",
+      "root_cause": "finishStream() is async but called without await in performMicRestart() async function.",
+      "swift_fix": "Change line 820 from 'micCapture.finishStream()' to 'await micCapture.finishStream()'",
+      "estimated_time": "1 min"
+    },
+    {
+      "line": 958,
+      "error": "Cannot find 'SyncDouble' in scope",
+      "root_cause": "SyncDouble type does not exist in the codebase. It's referenced for thread-safe audio time accumulation in the diarization system.",
+      "swift_fix": "Create actor SyncDouble with add() and value properties, then use 'let sysAudioTime = SyncDouble()'. Implementation: actor SyncDouble { private var _value: Double = 0; func add(_ delta: Double) { _value += delta }; nonisolated var value: Double { _value } }",
+      "estimated_time": "5 min"
+    }
+  ],
+  "total_fix_time": "28 minutes",
+  "swift6_compliance": "All fixes maintain strict concurrency compliance - Sendable protocols, actor isolation, and proper async/await usage. The MicCapture var change is safe because all state is OSAllocatedUnfairLock-protected.",
+  "additional_fixes_needed": [
+    {
+      "file": "BatchAudioTranscriber.swift",
+      "lines": [422, 540],
+      "error": "Same VadManager protocol instantiation issue",
+      "fix": "Apply same FluidVadManager pattern"
+    }
+  ],
+  "priority_order": [
+    "Line 958 - Create SyncDouble actor (blocks diarization feature)",
+    "Line 456 - Create FluidVadManager (blocks VAD functionality)",
+    "Line 172 - Change let to var (blocks mic mute feature)",
+    "Lines 546, 725, 820, 786 - Add missing await keywords"
+  ]
+}

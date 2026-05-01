@@ -1,0 +1,196 @@
+{
+  "agent": "swift-security",
+  "analysis_date": "2026-05-01T16:15:00Z",
+  "findings_analyzed": 6,
+  "swift_specific_fixes": [
+    {
+      "id": "SEC-001",
+      "file": "AssemblyAITranscriptionService.swift",
+      "line": 434,
+      "severity": 9,
+      "category": "URL Injection",
+      "vulnerable_pattern": "URL(string: \"https://api.assemblyai.com/v2/transcript/\\(transcriptID)\")",
+      "swift_fix": "var components = URLComponents(string: \"https://api.assemblyai.com/v2/transcript\"); components?.path = \"/\" + transcriptID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? transcriptID; guard let pollURL = components?.url else { throw TranscriptionError.invalidTranscriptID }",
+      "exploitability": "HIGH - Path traversal via ../ or query injection via ?redirect=evil.com",
+      "false_positive": false,
+      "swift_rationale": "URLComponents provides RFC 3986 compliant encoding, automatically escaping reserved characters. Direct interpolation bypasses percent-encoding, allowing attackers to inject path separators and query delimiters."
+    },
+    {
+      "id": "SEC-002",
+      "file": "AssemblyAIBackend.swift",
+      "line": 228,
+      "severity": 9,
+      "category": "URL Injection",
+      "vulnerable_pattern": "URL(string: \"\\(baseURL)/transcript/\\(id)\")",
+      "swift_fix": "let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id; guard let url = URL(string: baseURL)?.appendingPathComponent(\"transcript\").appendingPathComponent(encodedID) else { throw TranscriptionError.invalidURL }",
+      "exploitability": "HIGH - Double URL encoding attacks or path traversal if baseURL is attacker-controlled",
+      "false_positive": false,
+      "swift_rationale": "URL.appendingPathComponent() normalizes path separators and prevents traversal sequences. String interpolation allows '../' to escape path context."
+    },
+    {
+      "id": "SEC-003",
+      "file": "MLXModelDownloader.swift",
+      "line": 365,
+      "severity": 8,
+      "category": "URL Injection",
+      "vulnerable_pattern": "URL(string: \"\\(baseURL)/\\(filename)\")",
+      "swift_fix": "// Validate filename first\nlet sanitized = filename.replacingOccurrences(of: \"../\", with: \"\")\n    .replacingOccurrences(of: \"..\\\", with: \"\")\nguard let url = base?.appendingPathComponent(sanitized) else { throw ModelDownloadError.invalidURL }",
+      "exploitability": "MEDIUM - Path traversal to overwrite arbitrary files in app container",
+      "false_positive": false,
+      "swift_rationale": "MLX model downloads from remote sources require both path traversal filtering AND URL-safe construction. Combining validation with appendingPathComponent() provides defense in depth."
+    },
+    {
+      "id": "SEC-004",
+      "file": "AssemblyAITranscriptionService.swift",
+      "line": 53,
+      "severity": 8,
+      "category": "API Key Exposure",
+      "vulnerable_pattern": "func getAPIKey() -> String? { keychain.retrieve(...) }",
+      "swift_fix": "struct SecureString: ~Copyable {\n    private var buffer: ContiguousArray<UInt8>\n    private var decrypted: Bool = false\n    \n    init(from string: String) {\n        buffer = ContiguousArray(string.utf8)\n        // XOR with random key for memory obfuscation\n        buffer = buffer.map { $0 ^ 0xA5 }\n    }\n    \n    consuming func withSecureAccess<T>(_ operation: (String) throws -> T) rethrows -> T {\n        var temp = buffer.map { $0 ^ 0xA5 }\n        defer {\n            for i in temp.indices { temp[i] = 0 }\n        }\n        let string = String(bytes: temp, encoding: .utf8)!\n        return try operation(string)\n    }\n    \n    deinit {\n        for i in buffer.indices { buffer[i] = 0 }\n    }\n}",
+      "exploitability": "MEDIUM - Memory dump analysis, crash logs, or debugger attachment can extract key",
+      "false_positive": false,
+      "swift_rationale": "Swift String uses copy-on-write and can exist in multiple memory locations. SecureString with ~Copyable prevents accidental copies, explicit memory zeroing prevents extraction from crash dumps."
+    },
+    {
+      "id": "SEC-005",
+      "file": "CloudTranscriptionConfiguration.swift",
+      "line": 69,
+      "severity": 8,
+      "category": "API Key Exposure",
+      "vulnerable_pattern": "var apiKey: String? { get { keychain.apiKey } }",
+      "swift_fix": "var secureAPIKey: SecureString? {\n    guard let key = keychain.apiKey else { return nil }\n    return SecureString(from: key)\n}\n\n// Usage in service\napiKey.withSecureAccess { key in\n    request.setValue(key, forHTTPHeaderField: \"Authorization\")\n}",
+      "exploitability": "MEDIUM - Key persists in memory for lifetime of configuration object",
+      "false_positive": false,
+      "swift_rationale": "String? properties retain value in heap until deallocated. SecureString provides explicit lifecycle management with RAII-style cleanup via deinit."
+    },
+    {
+      "id": "SEC-006",
+      "file": "AssemblyAIBackend.swift",
+      "line": 73,
+      "severity": 8,
+      "category": "API Key Exposure",
+      "vulnerable_pattern": "private let apiKey: String",
+      "swift_fix": "private let secureAPIKey: SecureString\n\ninit(apiKey: String) {\n    self.secureAPIKey = SecureString(from: apiKey)\n}\n\n// In API calls:\nsecureAPIKey.withSecureAccess { key in\n    var request = URLRequest(url: url)\n    request.setValue(key, forHTTPHeaderField: \"Authorization\")\n    // ... execute request\n}",
+      "exploitability": "MEDIUM - Key extractable from process memory via ptrace or crash dumps",
+      "false_positive": false,
+      "swift_rationale": "let constants may be optimized into binary read-only section. SecureString ensures key material is never in a predictable memory location and is actively cleared after use."
+    }
+  ],
+  "swift6_security_patterns": {
+    "url_construction": {
+      "rule": "Never use string interpolation for URLs",
+      "compliant": [
+        "URLComponents for dynamic query/path construction",
+        "URL.appendingPathComponent() for path segments",
+        "addingPercentEncoding(withAllowedCharacters:) for user input"
+      ],
+      "dangerous": [
+        "URL(string: \"\\(base)/\\(id)\") - Injection risk",
+        "URL(string: base + \"/\" + path) - No encoding"
+      ]
+    },
+    "secrets_management": {
+      "rule": "Use ~Copyable SecureString for sensitive data",
+      "compliant": [
+        "struct SecureString: ~Copyable with explicit deinit cleanup",
+        "withSecureAccess pattern for temporary decryption",
+        "ContiguousArray<UInt8> for raw storage"
+      ],
+      "dangerous": [
+        "String properties for API keys - Remains in heap",
+        "NSString for keys - Immutable, can't zero memory"
+      ]
+    }
+  },
+  "false_positive_analysis": [
+    {
+      "finding": "SEC-003 (MLX Model Downloader)",
+      "assessment": "PARTIAL - May be lower risk if baseURL is hardcoded",
+      "reasoning": "If baseURL is a compile-time constant pointing to a trusted CDN, the exploitability is reduced. However, defense in depth still requires path validation.",
+      "recommendation": "Still implement fix - future refactoring may make baseURL configurable"
+    }
+  ],
+  "exploitability_ranking": [
+    {
+      "rank": 1,
+      "id": "SEC-001",
+      "exploit": "Transcript ID injection to access other users' transcripts",
+      "swift_factor": "Direct interpolation in URL constructor bypasses all encoding"
+    },
+    {
+      "rank": 2,
+      "id": "SEC-002",
+      "exploit": "Path traversal or SSRF via transcript ID",
+      "swift_factor": "Same pattern as SEC-001, different file location"
+    },
+    {
+      "rank": 3,
+      "id": "SEC-004",
+      "exploit": "Memory dump analysis to extract AssemblyAI API key",
+      "swift_factor": "Swift String's copy-on-write creates multiple key copies in memory"
+    },
+    {
+      "rank": 4,
+      "id": "SEC-006",
+      "exploit": "Debugger attachment or crash report harvesting",
+      "swift_factor": "Instance property persists for object lifetime"
+    },
+    {
+      "rank": 5,
+      "id": "SEC-005",
+      "exploit": "Key extraction from configuration object",
+      "swift_factor": "Same as SEC-004 but via property access"
+    },
+    {
+      "rank": 6,
+      "id": "SEC-003",
+      "exploit": "Path traversal to overwrite app files",
+      "swift_factor": "Model downloads may have lower trust boundary"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "P0",
+      "task": "Fix URL injection vulnerabilities (SEC-001, SEC-002, SEC-003)",
+      "estimated_effort": "45 minutes",
+      "swift_pattern": "URLComponents + appendingPathComponent",
+      "risk_if_delayed": "Immediate data exposure via transcript ID manipulation"
+    },
+    {
+      "priority": "P1",
+      "task": "Implement SecureString wrapper type",
+      "estimated_effort": "2 hours",
+      "swift_pattern": "~Copyable struct with ContiguousArray<UInt8>",
+      "risk_if_delayed": "API key exposure in crash reports and memory dumps"
+    },
+    {
+      "priority": "P2",
+      "task": "Add security regression tests",
+      "estimated_effort": "1 hour",
+      "swift_pattern": "XCTest with malicious input fixtures",
+      "tests": [
+        "testURLInjection_withPathTraversal_returnsError",
+        "testURLInjection_withQueryInjection_returnsError",
+        "testSecureString_clearsMemoryAfterUse"
+      ]
+    },
+    {
+      "priority": "P2",
+      "task": "Audit remaining URL construction patterns",
+      "estimated_effort": "30 minutes",
+      "swift_pattern": "grep for 'URL(string:.*\\(' pattern",
+      "risk_if_delayed": "Undiscovered injection vectors"
+    }
+  ],
+  "swift_specific_considerations": {
+    "arc_implications": "Swift ARC means String copies persist until last reference gone. SecureString must use ~Copyable to prevent implicit copies.",
+    "keychain_integration": "Keychain returns Data or String. Convert to SecureString immediately after retrieval, never store String property.",
+    "concurrency_safety": "SecureString operations should be isolated to actors or use locks for thread-safe access to the buffer.",
+    "crash_reporting": "Swift crash logs may include heap dumps. Zeroing memory in deinit reduces key exposure window."
+  },
+  "implementation_order": {
+    "phase_1_immediate": ["SEC-001", "SEC-002"],
+    "phase_2_same_day": ["SEC-003", "SEC-004"],
+    "phase_3_follow_up": ["SEC-005", "SEC-006"]
+  }
+}

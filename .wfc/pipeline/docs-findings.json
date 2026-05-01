@@ -1,36 +1,65 @@
 {
-  "docs_updated": [
-    "README.md",
-    "docs/adr/001-consolidate-appsettings-settingsstore.md"
-  ],
-  "docs_scaffolded": [
-    "CHANGELOG.md",
-    "docs/DEVELOPER-GUIDE.md"
-  ],
+  "docs_updated": ["README.md", "CHANGELOG.md"],
+  "docs_scaffolded": [],
   "skill_docs_current": true,
-  "documentation_summary": {
-    "updated_files": 2,
-    "created_files": 2,
-    "key_changes": [
-      "Added Swift 6 @Observable migration section to README.md",
-      "Created CHANGELOG.md with breaking change documentation for AppSettings consolidation",
-      "Created comprehensive DEVELOPER-GUIDE.md with migration guide, patterns, and troubleshooting"
-    ]
+  "wfc_docs_output": ".wfc/pipeline/docs-output.json",
+  "findings_summary": {
+    "total_gaps_found": 3,
+    "total_gaps_closed": 3,
+    "gaps_by_priority": {
+      "required": 1,
+      "recommended": 2,
+      "optional": 0
+    },
+    "dimensions_audited": ["readme", "changelog", "architecture", "inline", "config"],
+    "skills_checked": []
   },
-  "adr_reference": {
-    "file": "docs/adr/001-consolidate-appsettings-settingsstore.md",
-    "status": "Accepted",
-    "decision": "Typealias AppSettings = SettingsStore"
+  "remediation_scope_covered": {
+    "domain_layer": {
+      "entities": ["AudioSegment", "Note", "SpeakerEntity", "UtteranceEntity", "Transcript", "Session", "Meeting"],
+      "errors": ["AudioError", "NetworkError", "ValidationError", "StorageError", "TranscriptionError"],
+      "value_objects": ["Identifiers"],
+      "documentation_status": "inline_docs_good"
+    },
+    "business_layer": {
+      "usecases": ["ExportTranscript", "GenerateNotes", "ImportAudio", "StartSession", "StopSession", "SwitchBackend"],
+      "documentation_status": "inline_docs_good"
+    },
+    "infrastructure_layer": {
+      "protocols": ["AudioCaptureService", "TranscriptionService", "LLMService", "RepositoryProtocols", "ServiceFactory"],
+      "services": ["MLXTranscription", "WhisperKitTranscription", "AssemblyAITranscription"],
+      "actors": ["ActorProtocolDefinitions"],
+      "documentation_status": "inline_docs_good"
+    },
+    "presentation_layer": {
+      "viewmodels": ["DefaultSession", "DefaultIdleDashboard", "DefaultSettings", "DefaultTranscript"],
+      "documentation_status": "inline_docs_good"
+    },
+    "di_layer": {
+      "components": ["DIContainer", "UseCaseFactory", "ViewModelFactory", "FactoryProtocols"],
+      "documentation_status": "inline_docs_good"
+    }
   },
-  "migration_documentation": {
-    "breaking_change": "AppSettings is now SettingsStore via typealias",
-    "backward_compatibility": "Convenience init added, Views using @Bindable AppSettings work without changes",
-    "pattern_change": "didSet persistence → @Observable with access/withMutation",
-    "guide_location": "docs/DEVELOPER-GUIDE.md"
+  "adrs_status": {
+    "002-adopt-3tier-clean-architecture": "current",
+    "003-protocol-based-dependency-injection": "current",
+    "004-swift-6.2-strict-concurrency": "current",
+    "005-multi-backend-transcription-abstraction": "current"
   },
-  "architecture_docs": {
-    "c4_diagrams_exist": false,
-    "c4_update_needed": false,
-    "note": "No C4 diagrams exist in the repository; nothing to update"
+  "completed_work": {
+    "CHANGELOG.md": {
+      "action": "created",
+      "content": "Swift 6.2 remediation summary with all fixes and architecture changes"
+    },
+    "README.md": {
+      "action": "updated",
+      "sections": ["Repo layout", "Architecture"],
+      "content": "Added 5-layer architecture diagram and Swift 6.2 compliance note"
+    }
+  },
+  "verification": {
+    "adrs_linked": true,
+    "architecture_diagrams": "updated_in_readme",
+    "inline_docs": "verified_existing"
   }
 }

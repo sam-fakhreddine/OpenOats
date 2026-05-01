@@ -1,0 +1,99 @@
+{
+  "reviewer": "performance",
+  "findings": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 186,
+      "severity": 9,
+      "confidence": 9,
+      "category": "performance",
+      "description": "O(n) array shift in VAD loop: vadBuffer.removeFirst(vadReadIndex) triggers array reallocation and memory copy. Called every VAD chunk (every 256ms), causing O(n^2) total complexity over time. Buffer grows unbounded before removal.",
+      "remediation": "Replace Array with CircularBuffer: private var vadBuffer = CircularAudioBuffer(capacity: 16000 * 10). Write: vadBuffer.write(samples); Read: guard let chunk = vadBuffer.readChunk() else { continue }. Avoids O(n) shift."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 528,
+      "severity": 9,
+      "confidence": 9,
+      "category": "performance",
+      "description": "Unbounded array growth for speech samples: speechSamples.append(contentsOf: chunk) has no upper bound. For 2-hour meeting at 16kHz = 115M samples = ~460MB memory. Can cause memory pressure crash.",
+      "remediation": "Use fixed-size circular buffer with flush: private var speechBuffer = CircularAudioBuffer(capacity: 16000 * 30). Flush every 30 seconds via await submitChunk(speechBuffer.readChunk())."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+      "line": 171,
+      "severity": 7,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar deinterleave loop in convertToMono: for i in 0..<frameCount { leftChannel[i] = baseAddress[i * 2]; rightChannel[i] = baseAddress[i * 2 + 1] } is O(n) scalar loop that should use vDSP_deqinterleave.",
+      "remediation": "Use vDSP_deqinterleave: var leftChannel = [Float](repeating: 0, count: frameCount); var rightChannel = [Float](repeating: 0, count: frameCount); vDSP_deqinterleave(src.baseAddress!, &leftChannel, &rightChannel, vDSP_Length(frameCount), 2)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitAudioProcessor.swift",
+      "line": 267,
+      "severity": 7,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar channel extraction in extractFloatSamples: Nested loop for channel in 0..<channelCount { for frame in 0..<frameLength { samples[frame * channelCount + channel] = channelPtr[frame] } } is O(n*m) scalar.",
+      "remediation": "Use vDSP_mmov for channel interleaving or memcpy for contiguous blocks: for channel in 0..<channelCount { memcpy(&samples[channel * frameLength], channelData[channel], frameLength * MemoryLayout<Float>.size) }"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitAudioProcessor.swift",
+      "line": 282,
+      "severity": 7,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar mixing in mixToMono: for frame in 0..<frameCount { for channel in 0..<channelCount { sum += samples[frame * channelCount + channel] } } is O(n*m) scalar loop instead of vDSP.",
+      "remediation": "Use vDSP for mixing: create weight array of 1.0/Float(channelCount), then vDSP_vmul for weighted sum or use matrix multiplication via Accelerate."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 129,
+      "severity": 5,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar buffer zeroing: for i in buffer.indices { buffer[i] = 0.0 } in release(_:) is O(n) scalar loop. For 64K buffer = 64K operations per release.",
+      "remediation": "Use vDSP_vclr for vectorized zeroing: vDSP_vclr(buffer, 1, vDSP_Length(buffer.count)) or use memset: memset(&buffer, 0, buffer.count * MemoryLayout<Float>.size)."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 208,
+      "severity": 6,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar circular buffer write: for sample in samples { _buffer[head] = sample; head = (head + 1) % capacity } is O(n) scalar loop per write. Could use bulk copy for large writes.",
+      "remediation": "Use bulk copy with wrap handling: let count = min(samples.count, capacity - head); memcpy(&_buffer[head], samples, count * MemoryLayout<Float>.size); memcpy(&_buffer[0], samples.advanced(by: count), (samples.count - count) * MemoryLayout<Float>.size)"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 268,
+      "severity": 5,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Scalar buffer clear in CircularAudioBuffer: for i in _buffer.indices { _buffer[i] = 0.0 } is O(n) scalar loop during reset.",
+      "remediation": "Use memset for zeroing: memset(&_buffer, 0, _buffer.count * MemoryLayout<Float>.size) or vDSP_vclr for vectorized clear."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 209,
+      "severity": 6,
+      "confidence": 8,
+      "category": "performance",
+      "description": "flatMap creates intermediate arrays: speechSamples = recentChunks.suffix(Self.prerollChunkCount).flatMap { $0 } creates multiple intermediate arrays and copies during speech start.",
+      "remediation": "Preallocate and copy: speechSamples.reserveCapacity(Self.prerollChunkCount * chunkSize); for chunk in recentChunks.suffix(Self.prerollChunkCount) { speechSamples.append(contentsOf: chunk) }."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 181,
+      "severity": 6,
+      "confidence": 8,
+      "category": "performance",
+      "description": "Array slicing creates copy: Array(vadBuffer[vadReadIndex..<(vadReadIndex + Self.vadChunkSize)]) creates a new array copy every VAD chunk. With 256ms chunks, creates ~4 arrays/second.",
+      "remediation": "Use withUnsafeBufferPointer and pass range: vadBuffer.withUnsafeBufferPointer { buffer in let chunk = Array(buffer[vadReadIndex..<vadReadIndex+chunkSize]) }. Or better, use CircularBuffer with readChunk() that returns slice without copy."
+    }
+  ],
+  "high_count": 2,
+  "medium_count": 5,
+  "low_count": 3,
+  "status": "complete"
+}

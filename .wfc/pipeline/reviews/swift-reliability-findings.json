@@ -1,0 +1,29 @@
+[
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+    "line": 716,
+    "category": "reliability",
+    "severity": 4,
+    "confidence": 8,
+    "description": "Converter error logged but nil returned silently. Caller cannot distinguish resample failure from empty buffer.",
+    "remediation": "Consider propagating error information or logging at higher severity for debugging."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+    "line": 282,
+    "category": "reliability",
+    "severity": 3,
+    "confidence": 7,
+    "description": "extractSamples failure continues silently with 'continue'. Speech samples may be lost without notice.",
+    "remediation": "Add logging for extractSamples failures to aid debugging."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+    "line": 165,
+    "category": "reliability",
+    "severity": 2,
+    "confidence": 6,
+    "description": "withUnsafeBufferPointer guard let returns early silently. Could mask buffer issues.",
+    "remediation": "Add assertion or logging for nil baseAddress case during development."
+  }
+]

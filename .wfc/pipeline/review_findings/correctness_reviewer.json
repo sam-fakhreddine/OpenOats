@@ -1,0 +1,81 @@
+{
+  "reviewer": "correctness",
+  "findings": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitTranscriptionService.swift",
+      "line": 59,
+      "severity": 7,
+      "confidence": 9,
+      "category": "correctness",
+      "description": "@unchecked Sendable on actor is redundant and misleading. Actors are implicitly Sendable in Swift 6. The @unchecked Sendable suggests manual verification needed when actor isolation already provides safety.",
+      "remediation": "Remove @unchecked Sendable from actor declaration. Actors are implicitly Sendable - no annotation needed."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Performance/NonBlockingProtocols.swift",
+      "line": 49,
+      "severity": 7,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "Error? is not Sendable. TranscriptionSegment stores 'error: AudioError?' which may break Swift 6 concurrency checks. Error protocol does not conform to Sendable.",
+      "remediation": "Create TranscriptionErrorInfo struct: struct TranscriptionErrorInfo: Sendable { let message: String; let code: String; let isRecoverable: Bool }. Convert errors before storage."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 579,
+      "severity": 6,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "nonisolated(unsafe) without SAFETY comment. The 'consumed' variable is marked nonisolated(unsafe) but lacks documented justification for why this is thread-safe in the actor context.",
+      "remediation": "Add SAFETY comment: // SAFETY: 'consumed' is only accessed within the convert closure which is synchronously executed on the actor's thread before the method returns. No cross-actor access occurs."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/DI/DIContainer.swift",
+      "line": 97,
+      "severity": 8,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "Fire-and-forget Task in actor init creates race condition. Task { @MainActor in self.cachedViewModelFactory = vmFactory } may execute after other init code runs, causing inconsistent state.",
+      "remediation": "Remove fire-and-forget Task. Make init async or use @MainActor init: @MainActor init(...) { ... cachedViewModelFactory = viewModelFactory }. Consider factory pattern for async initialization."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Business/UseCases/ImportAudioUseCase.swift",
+      "line": 181,
+      "severity": 6,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "[weak self] in actor-isolated context is unnecessary and potentially problematic. ImportAudioUseCaseImpl is an actor, so closures within its methods already have isolated access. Weak capture could prevent progress updates.",
+      "remediation": "Remove [weak self] - actors don't need weak capture for internal closures: progressHandler: { progress in self.reportProgress(adjustedProgress) }. The actor's isolation domain ensures proper lifecycle."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 352,
+      "severity": 8,
+      "confidence": 9,
+      "category": "correctness",
+      "description": "Defer with async operations is unreliable. The defer block creates a Task for async buffer release, but defer runs when function exits - Task may not complete before process termination or may be cancelled unexpectedly.",
+      "remediation": "Replace defer with explicit cleanup in do/catch/finally pattern: do { ... } catch { ... } finally { await bufferPool.release(&micBuffer); await bufferPool.release(&sysBuffer) }. Or use withExtendedLifetime pattern."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXAudioProcessor.swift",
+      "line": 183,
+      "severity": 5,
+      "confidence": 7,
+      "category": "correctness",
+      "description": "Generic multi-channel path uses scalar loop instead of vDSP. Multi-channel mixing (channelCount > 2) falls back to scalar O(n*m) loop instead of vectorized operations.",
+      "remediation": "Use vDSP for multi-channel mixing: Create weight vector [1/channelCount] and use vDSP_vsq or vDSP_mmov for parallel channel processing."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 587,
+      "severity": 7,
+      "confidence": 8,
+      "category": "correctness",
+      "description": "[weak self] in Task captures within actor may cause premature nil. StreamingSpeechProcessor uses Task { [weak self, chunk] in ... } inside actor - weak capture could cause self to become nil before clearActiveTask() is called.",
+      "remediation": "Remove [weak self] in actor-isolated Task. The actor's lifecycle manages the task - use Task { [chunk] in ... await self.clearActiveTask() }. Actor deinit will cancel tasks."
+    }
+  ],
+  "high_count": 0,
+  "medium_count": 4,
+  "low_count": 4,
+  "status": "complete"
+}

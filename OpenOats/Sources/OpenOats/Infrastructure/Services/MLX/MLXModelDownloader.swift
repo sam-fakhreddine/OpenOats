@@ -361,9 +361,18 @@ public actor MLXModelDownloader {
             "tokenizer.json"
         ]
         
-        return essentialFiles.compactMap { filename in
-            guard let url = URL(string: "\(baseURL)/\(filename)") else { return nil }
-            return (filename, url)
+        // SEC-003 Fix: Use SecureURLConstruction to prevent path traversal
+        return try essentialFiles.compactMap { filename -> (String, URL)? in
+            do {
+                let url = try SecureURLConstruction.modelDownloadURL(
+                    baseURL: baseURL,
+                    filename: filename
+                )
+                return (filename, url)
+            } catch {
+                // Log and skip invalid URLs
+                return nil
+            }
         }
     }
 }

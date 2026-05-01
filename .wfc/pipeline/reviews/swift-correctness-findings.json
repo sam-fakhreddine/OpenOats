@@ -1,0 +1,29 @@
+[
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift",
+    "line": 1387,
+    "category": "correctness",
+    "severity": 2,
+    "confidence": 9,
+    "description": "SyncDouble.value nonisolated getter reads _value without synchronization. Value may be stale.",
+    "remediation": "Document that value is intentionally stale for diagnostics, or use atomic/actor pattern for real-time reads."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift",
+    "line": 1374,
+    "category": "correctness",
+    "severity": 3,
+    "confidence": 8,
+    "description": "FluidVadManager.processStreamingChunk returns stub VadResult. Real implementation pending.",
+    "remediation": "Document TODO for actual VAD logic integration. Current stub may cause transcription failures."
+  },
+  {
+    "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+    "line": 705,
+    "category": "correctness",
+    "severity": 2,
+    "confidence": 7,
+    "description": "Nonisolated(unsafe) used for converter callback. Safe here due to serial execution but should be documented.",
+    "remediation": "Add comment explaining why nonisolated(unsafe) is safe in this specific context."
+  }
+]

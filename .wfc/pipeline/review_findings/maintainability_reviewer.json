@@ -1,0 +1,90 @@
+{
+  "reviewer": "maintainability",
+  "findings": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 147,
+      "severity": 8,
+      "confidence": 9,
+      "category": "maintainability",
+      "description": "run() method CCN 29 exceeds threshold of 15. The method is 130+ lines with nested if/else, switch statements, and async calls. High complexity makes testing difficult and increases bug risk.",
+      "remediation": "Extract methods: private func processVADState(_ state: VadState, chunk: [Float]) -> VADAction; private func handleSpeechStart(); private func handleSpeechEnd(); private func processPartialTranscription(). Reduces run() to ~30 lines with 5 extracted helpers."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 138,
+      "severity": 8,
+      "confidence": 9,
+      "category": "maintainability",
+      "description": "transcribeFile() method CCN 26 exceeds threshold. 100+ line method with validation, upload, polling, and error handling all intertwined. Nested do-catch and multiple phase handling.",
+      "remediation": "Split into phase methods: private func uploadPhase(audioData: Data, apiKey: String) async throws -> URL; private func createTranscriptPhase(uploadURL: URL, ...) async throws -> String; private func pollPhase(transcriptID: String, ...) async throws -> Result. Each < 30 lines."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 318,
+      "severity": 8,
+      "confidence": 9,
+      "category": "maintainability",
+      "description": "mergeStreams() method CCN 22 exceeds threshold. Complex async stream handling with multiple nested loops, error handling, and buffer management. 95+ lines.",
+      "remediation": "Extract stream filling logic: private func fillBuffer(from iterator: AsyncIterator, into buffer: inout [Float], count: Int) async -> Int; Extract mixing: private func mixAndWrite(micBuffer: [Float], sysBuffer: [Float], micCount: Int, sysCount: Int)."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/WhisperKit/WhisperKitAudioProcessor.swift",
+      "line": 32,
+      "severity": 6,
+      "confidence": 7,
+      "category": "maintainability",
+      "description": "Magic numbers in bit depth conversion: case 16, 24, 32 with no named constants. Comment explains but no semantic naming: Int16.max used inline.",
+      "remediation": "Define enum: enum BitDepth: Int { case pcm16 = 16; case pcm24 = 24; case pcm32 = 32; var maxValue: Float { switch self { case .pcm16: return Float(Int16.max); ... } } }"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift",
+      "line": 51,
+      "severity": 5,
+      "confidence": 7,
+      "category": "maintainability",
+      "description": "Multiple nonisolated let properties (12+) create clutter at top of actor. All immutable configuration properties are marked nonisolated but could be grouped.",
+      "remediation": "Group into configuration struct: struct TranscriptionConfig: Sendable { let backend: any TranscriptionBackend; let locale: Locale; ... }. Then: nonisolated let config: TranscriptionConfig. Reduces 12 properties to 1."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 551,
+      "severity": 6,
+      "confidence": 8,
+      "category": "maintainability",
+      "description": "HTTP status code switch is 40+ lines with magic numbers (200..<300, 401, 403, 429, 500..<600). Hard to extend and no semantic naming.",
+      "remediation": "Create HTTPStatus enum: enum HTTPStatusCategory { case success; case unauthorized; case rateLimited; case serverError }. Add init(statusCode: Int) for categorization."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/DI/DIContainer.swift",
+      "line": 124,
+      "severity": 7,
+      "confidence": 8,
+      "category": "maintainability",
+      "description": "DEBUG build uses mock factory - surprising behavior. #if DEBUG factory = MockServiceFactory() is unexpected and could lead to 'works on my machine' bugs in production.",
+      "remediation": "Add explicit mode for mock usage: case .live(useMockInDebug: Bool). Or use separate .development mode. Document the behavior in comments and README."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/MLX/MLXModelDownloader.swift",
+      "line": 217,
+      "severity": 6,
+      "confidence": 7,
+      "category": "maintainability",
+      "description": "Hardcoded size estimate in getTotalSize(): return 1_200_000_000 // ~1.2GB. No explanation of source or fallback mechanism.",
+      "remediation": "Add struct ModelSizeEstimate with documentation: struct ModelSizeEstimate { static let glmASR4Bit: Int64 = 1_200_000_000 // Based on mlx-community/GLM-ASR-Nano-2512-4bit config.json }. Or fetch from HuggingFace API."
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Audio/StreamingBufferProtocols.swift",
+      "line": 897,
+      "severity": 4,
+      "confidence": 6,
+      "category": "maintainability",
+      "description": "Memory budget documentation in block comment instead of searchable/swift-doc format. Good content but not easily discoverable.",
+      "remediation": "Convert to proper documentation comments with /// and add to README: /// Memory Budget (from TASK-016 design): ... | Component | Before | After |."
+    }
+  ],
+  "high_count": 0,
+  "medium_count": 6,
+  "low_count": 3,
+  "status": "complete"
+}
