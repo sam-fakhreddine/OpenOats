@@ -1,11 +1,67 @@
 __pycache__/
 *.pyc
 build/
+.build/
 dist/
 *.spec
 .worktrees/
 .beads/
+.claude/
 OpenOats/.build/
 data/
 CLAUDE.md
 AGENTS.md
+REPO_POLICY.md
+
+# Local OS/editor artifacts
+.DS_Store
+.cursor/*.log
+
+# Local crash and package artifacts
+*.ips
+*.dmg
+
+# Local marketing video project
+video/
+docs/superpowers/
+
+# Demo knowledge bases
+demo-kb/
+demo-kb-investor/
+investigations/
+
+# Investigation workspace (large files)
+investigations/
+
+# IDE/AI tool artifacts
+.ai-sync/
+.eedom/
+.eedomignore
+.temp/
+.wfc/
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Archives
+*.tar.gz
+*.zip
+*.tar
+*.rar
+
+# Media files (should be in LFS if needed)
+*.wav
+*.flac
+*.mp3
+*.mp4
+*.avi
+*.mov
+
+# AI assistant local files (user-specific, don't commit)
+CLAUDE.md
+AGENTS.md
+REPO_POLICY.md
+.claude/
+.ai-sync/
