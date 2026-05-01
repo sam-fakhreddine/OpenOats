@@ -695,13 +695,3 @@ enum VadEventKind: Sendable {
 struct VadConfig: Sendable {
     static let `default` = VadConfig()
 }
-
-// MARK: - CloudASRError Definition (if not already defined)
-
-enum CloudASRError: Error {
-    case invalidAPIKey
-    case invalidUploadURL
-    case httpError(Int)
-    case transcriptionFailed
-    case timeout
-}

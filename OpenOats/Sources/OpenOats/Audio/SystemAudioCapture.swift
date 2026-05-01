@@ -7,19 +7,21 @@ import Foundation
 import os
 
 /// Captures system output audio via a Core Audio process tap.
-final class SystemAudioCapture: @unchecked Sendable {
-    private let _audioLevel = AudioLevel()
-    private let _hasCapturedFrames = SyncBool()
-    private let _paused = SyncBool()
+/// Data Race Fix: Replaced @unchecked Sendable with proper actor isolation pattern
+final class SystemAudioCapture: Sendable {
+    // Data Race Fix: Using OSAllocatedUnfairLock instead of deprecated @unchecked Sendable types
+    private let _audioLevel = OSAllocatedUnfairLock<Float>(initialState: 0)
+    private let _hasCapturedFrames = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private let _paused = OSAllocatedUnfairLock<Bool>(initialState: false)
 
     /// Thread-safe audio level (0…1) from the system audio stream.
-    var audioLevel: Float { _paused.value ? 0 : _audioLevel.value }
-    var hasCapturedFrames: Bool { _hasCapturedFrames.value }
+    var audioLevel: Float { _paused.withLock { $0 } ? 0 : _audioLevel.withLock { $0 } }
+    var hasCapturedFrames: Bool { _hasCapturedFrames.withLock { $0 } }
 
     /// When paused, buffers are not forwarded to the stream and audio level reads as 0.
     var isPaused: Bool {
-        get { _paused.value }
-        set { _paused.value = newValue }
+        get { _paused.withLock { $0 } }
+        set { _paused.withLock { $0 = newValue } }
     }
 
     private let _aggregateDeviceID = OSAllocatedUnfairLock<AudioObjectID>(
@@ -47,7 +49,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         let sysStream = AsyncStream<AVAudioPCMBuffer> { continuation in
             self._sysContinuation.withLock { $0 = continuation }
         }
-        _hasCapturedFrames.value = false
+        _hasCapturedFrames.withLock { $0 = false }
 
         let resolvedDeviceID: AudioDeviceID
         if let requested = outputDeviceID {
@@ -167,8 +169,8 @@ final class SystemAudioCapture: @unchecked Sendable {
 
     func stop() async {
         finishStream()
-        _audioLevel.value = 0
-        _hasCapturedFrames.value = false
+        _audioLevel.withLock { $0 = 0 }
+        _hasCapturedFrames.withLock { $0 = false }
 
         let aggregateDeviceID = _aggregateDeviceID.withLock { state -> AudioObjectID in
             let current = state
@@ -245,11 +247,11 @@ final class SystemAudioCapture: @unchecked Sendable {
         if let channelData = pcmBuffer.floatChannelData, pcmBuffer.frameLength > 0 {
             var rms: Float = 0
             vDSP_rmsqv(channelData[0], 1, &rms, vDSP_Length(pcmBuffer.frameLength))
-            _audioLevel.value = min(rms * 25, 1.0)
+            _audioLevel.withLock { $0 = min(rms * 25, 1.0) }
         }
-        _hasCapturedFrames.value = true
+        _hasCapturedFrames.withLock { $0 = true }
 
-        guard !_paused.value else { return }
+        guard !_paused.withLock({ $0 }) else { return }
         _ = _sysContinuation.withLock { $0?.yield(pcmBuffer) }
     }
 

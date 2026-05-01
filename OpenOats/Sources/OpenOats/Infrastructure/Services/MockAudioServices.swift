@@ -4,7 +4,7 @@ import Foundation
 
 /// Mock implementation of AudioCaptureService for testing.
 @available(macOS 15.0, *)
-public actor MockAudioCaptureService: AudioCaptureService, @unchecked Sendable {
+@preconcurrency public actor MockAudioCaptureService: AudioCaptureService, Sendable {
     public nonisolated let configuration: AudioCaptureConfiguration
     
     private var captureState: Bool = false
@@ -114,7 +114,7 @@ public actor MockAudioCaptureService: AudioCaptureService, @unchecked Sendable {
 
 /// Mock implementation of AudioFormatService for testing.
 @available(macOS 15.0, *)
-public actor MockAudioFormatService: AudioFormatService {
+@preconcurrency public actor MockAudioFormatService: AudioFormatService, Sendable {
     private var audioInfoResults: [URL: AudioInfo] = [:]
     private var conversionResults: [URL: Result<URL, AudioError>] = [:]
     private var validationResults: [URL: ValidationResult] = [:]

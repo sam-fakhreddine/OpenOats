@@ -4,7 +4,7 @@ import Foundation
 
 /// Mock implementation of TranscriptionService for testing.
 @available(macOS 15.0, *)
-public actor MockTranscriptionService: TranscriptionService, @unchecked Sendable {
+@preconcurrency public actor MockTranscriptionService: TranscriptionService, Sendable {
     public nonisolated let backendID: BackendID
     public nonisolated let displayName: String
     public nonisolated let supportedFormats: [AudioFormat]
@@ -52,7 +52,7 @@ public actor MockTranscriptionService: TranscriptionService, @unchecked Sendable
 
 /// Mock implementation of StreamingTranscriptionService for testing.
 @available(macOS 15.0, *)
-public actor MockStreamingTranscriptionService: StreamingTranscriptionService, @unchecked Sendable {
+@preconcurrency public actor MockStreamingTranscriptionService: StreamingTranscriptionService, Sendable {
     public nonisolated let backendID: BackendID
     public nonisolated let displayName: String
     public nonisolated let supportedFormats: [AudioFormat]
@@ -145,7 +145,7 @@ public actor MockStreamingTranscriptionService: StreamingTranscriptionService, @
 
 /// Mock implementation of BatchTranscriptionService for testing.
 @available(macOS 15.0, *)
-public actor MockBatchTranscriptionService: BatchTranscriptionService, @unchecked Sendable {
+@preconcurrency public actor MockBatchTranscriptionService: BatchTranscriptionService, Sendable {
     public nonisolated let backendID: BackendID
     public nonisolated let displayName: String
     public nonisolated let supportsSpeakerDiarization: Bool

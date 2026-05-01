@@ -314,17 +314,39 @@ protocol TranscriptionStateMachineProtocol: Actor {
 struct StreamingTranscriberSafe: Sendable {
     private let actor: StreamingTranscriptionActor
     
-    init(config: TranscriptionConfiguration, backend: any TranscriptionBackend, speaker: Speaker) {
+    init(
+        backend: any TranscriptionBackend,
+        locale: Locale,
+        vadManager: VadManager,
+        speaker: Speaker,
+        sessionID: String?,
+        transcriptionModel: String,
+        flushInterval: Int,
+        skipPartials: Bool = false,
+        onPartial: @escaping @Sendable (String) -> Void,
+        onFinal: @escaping @Sendable (String) -> Void,
+        onCloudSegmentStatus: (@Sendable (StreamingTranscriptionActor.CloudSegmentStatus) -> Void)? = nil,
+        onCloudProcessingChanged: (@Sendable (Bool) -> Void)? = nil
+    ) {
         self.actor = StreamingTranscriptionActor(
-            config: config,
             backend: backend,
-            speaker: speaker
+            locale: locale,
+            vadManager: vadManager,
+            speaker: speaker,
+            sessionID: sessionID,
+            transcriptionModel: transcriptionModel,
+            flushInterval: flushInterval,
+            skipPartials: skipPartials,
+            onPartial: onPartial,
+            onFinal: onFinal,
+            onCloudSegmentStatus: onCloudSegmentStatus,
+            onCloudProcessingChanged: onCloudProcessingChanged
         )
     }
     
-    /// Process audio safely through actor isolation
-    func processAudio(_ segment: [Float]) async throws -> String? {
-        return try await actor.processBuffer(segment)
+    /// Process audio stream safely through actor isolation
+    func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
+        await actor.run(stream: stream)
     }
     
     /// Clean up resources
@@ -366,10 +388,10 @@ struct MicCaptureSafe: Sendable {
     }
     
     /// Get the buffer stream
-    func stream() -> AsyncStream<AVAudioPCMBuffer> {
-        // The stream is safe to return - it's just the configuration
-        // Actual yields happen through the actor
-        return actor.bufferStream()
+    /// Note: Must be called from an async context to properly bridge to actor isolation
+    func stream() async -> AsyncStream<AVAudioPCMBuffer> {
+        // Access the stream from within actor isolation
+        return await actor.bufferStream()
     }
 }
 

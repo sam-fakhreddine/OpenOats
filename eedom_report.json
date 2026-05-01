@@ -1,0 +1,4 @@
+Usage: eedom review [OPTIONS]
+Try 'eedom review --help' for help.
+
+Error: No such option: --path (Possible options: --pr, --repo-path, --watch)

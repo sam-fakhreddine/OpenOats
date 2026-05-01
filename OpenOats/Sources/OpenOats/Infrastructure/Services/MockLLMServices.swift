@@ -4,7 +4,7 @@ import Foundation
 
 /// Mock implementation of LLMService for testing.
 @available(macOS 15.0, *)
-public actor MockLLMService: LLMService {
+@preconcurrency public actor MockLLMService: LLMService, Sendable {
     private var isAvailableState: Bool
     private var completeResult: Result<LLMResponse, NetworkError>?
     private var chatResult: Result<LLMResponse, NetworkError>?
@@ -140,7 +140,7 @@ public actor MockLLMService: LLMService {
 
 /// Mock implementation of EmbeddingService for testing.
 @available(macOS 15.0, *)
-public actor MockEmbeddingService: EmbeddingService {
+@preconcurrency public actor MockEmbeddingService: EmbeddingService, Sendable {
     private var embeddings: [[Float]]
     private var shouldFail: Bool
     private var failWithError: NetworkError?
@@ -226,7 +226,7 @@ public actor MockEmbeddingService: EmbeddingService {
 
 /// Mock implementation of AISuggestionService for testing.
 @available(macOS 15.0, *)
-public actor MockAISuggestionService: AISuggestionService {
+@preconcurrency public actor MockAISuggestionService: AISuggestionService, Sendable {
     private var suggestions: [AISuggestion]
     private var generatedNote: AINote?
     private var questionAnswer: String?
