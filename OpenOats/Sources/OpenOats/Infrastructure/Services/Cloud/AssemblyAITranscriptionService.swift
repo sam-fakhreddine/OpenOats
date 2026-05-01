@@ -317,8 +317,25 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
     // MARK: - Private API Methods
     
     private func validateAPIKey(_ apiKey: String) async throws -> Bool {
-        let url = URL(string: "https://api.assemblyai.com/v2/transcript?limit=1")!
-        var request = URLRequest(url: url)
+        // SEC-001 Fix: Use SecureURLConstruction to prevent URL injection
+        let url = try SecureURLConstruction.assemblyAPIURL(path: "transcript")
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+            throw TranscriptionError.backendFailed(
+                backend: backendID.rawValue,
+                reason: "Invalid URL for API validation",
+                recoverable: true
+            )
+        }
+        components.queryItems = [URLQueryItem(name: "limit", value: "1")]
+        guard let finalURL = components.url else {
+            throw TranscriptionError.backendFailed(
+                backend: backendID.rawValue,
+                reason: "Invalid URL for API validation",
+                recoverable: true
+            )
+        }
+        
+        var request = URLRequest(url: finalURL)
         request.httpMethod = "GET"
         request.setValue(apiKey, forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 10
@@ -337,9 +354,10 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
         apiKey: String,
         progressHandler: (@Sendable (Int) -> Void)?
     ) async throws -> URL {
-        let uploadURL = URL(string: "https://api.assemblyai.com/v2/upload")!
+        // SEC-001 Fix: Use SecureURLConstruction to prevent URL injection
+        let uploadEndpointURL = try SecureURLConstruction.assemblyAPIURL(path: "upload")
         
-        var request = URLRequest(url: uploadURL)
+        var request = URLRequest(url: uploadEndpointURL)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "Authorization")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
@@ -394,8 +412,10 @@ public actor AssemblyAITranscriptionService: BatchTranscriptionService {
             body["speaker_labels"] = true
         }
         
-        let transcriptURL = URL(string: "https://api.assemblyai.com/v2/transcript")!
-        var request = URLRequest(url: transcriptURL)
+        // SEC-001 Fix: Use SecureURLConstruction to prevent URL injection
+        let transcriptEndpointURL = try SecureURLConstruction.assemblyAPIURL(path: "transcript")
+        
+        var request = URLRequest(url: transcriptEndpointURL)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

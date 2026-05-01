@@ -136,6 +136,32 @@ public enum URLConstructionError: Error, Sendable {
 @available(macOS 15.0, *)
 public enum SecureURLConstruction {
     
+    /// AssemblyAI API base URL
+    private static let assemblyAIBaseURL = "https://api.assemblyai.com/v2"
+    
+    /// Constructs a secure AssemblyAI API URL with a path.
+    /// - Parameter path: The API path (e.g., "upload", "transcript")
+    /// - Returns: Safe URL for the AssemblyAI API endpoint
+    /// - Throws: URLConstructionError if construction fails
+    public static func assemblyAPIURL(path: String) throws -> URL {
+        guard var components = URLComponents(string: assemblyAIBaseURL) else {
+            throw URLConstructionError.invalidBaseURL
+        }
+        
+        // Validate no path traversal
+        guard !path.contains("../"), !path.contains("..") else {
+            throw URLConstructionError.invalidPathComponent
+        }
+        
+        components.path.append("/" + path)
+        
+        guard let url = components.url else {
+            throw URLConstructionError.invalidPathComponent
+        }
+        
+        return url
+    }
+    
     /// Constructs a transcript polling URL with proper path encoding.
     /// - Parameter transcriptID: The transcript ID to poll
     /// - Returns: Safe URL with properly encoded path
