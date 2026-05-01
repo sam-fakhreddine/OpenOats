@@ -269,129 +269,224 @@ actor StreamingTranscriptionActor {
 
         for await buffer in stream {
             guard !Task.isCancelled else { break }
-            bufferCount += 1
-            if bufferCount <= 3 {
-                let fmt = buffer.format
-                Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] buffer #\(bufferCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) sr=\(fmt.sampleRate, privacy: .public) ch=\(fmt.channelCount, privacy: .public) interleaved=\(fmt.isInterleaved, privacy: .public) common=\(fmt.commonFormat.rawValue, privacy: .public)")
-            }
+            bufferCount = await logBufferDiagnostics(buffer: buffer, count: bufferCount)
 
             // Track effective sample rate (detects process-tap rate mismatch)
-            // Safe: running in actor isolation
             await updateRateTracking(buffer)
 
             guard let samples = await extractSamples(buffer) else { continue }
+            vadBuffer.append(samples)
 
-            if bufferCount <= 3 {
+            let vadResult = await processVADBuffer(
+                vadBuffer: &vadBuffer,
+                vadReadIndex: &vadReadIndex,
+                vadState: &vadState,
+                recentChunks: &recentChunks,
+                speechSamples: &speechSamples,
+                isSpeaking: &isSpeaking
+            )
+
+            await handleVADEvents(
+                vadResult: vadResult,
+                speechSamples: &speechSamples,
+                recentChunks: &recentChunks,
+                isSpeaking: &isSpeaking,
+                isRunningPartial: &isRunningPartial,
+                lastPartialTime: &lastPartialTime,
+                segmentQueue: segmentQueue
+            )
+        }
+
+        await finalizeRemainingSpeech(speechSamples: speechSamples, segmentQueue: segmentQueue)
+    }
+
+    // MARK: - VAD Processing Helpers (Extracted to reduce CCN)
+
+    private func logBufferDiagnostics(buffer: AVAudioPCMBuffer, count: Int) async -> Int {
+        let newCount = count + 1
+        if newCount <= 3 {
+            let fmt = buffer.format
+            Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] buffer #\(newCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) sr=\(fmt.sampleRate, privacy: .public) ch=\(fmt.channelCount, privacy: .public) interleaved=\(fmt.isInterleaved, privacy: .public) common=\(fmt.commonFormat.rawValue, privacy: .public)")
+
+            if let samples = await extractSamples(buffer) {
                 let maxVal = samples.max() ?? 0
                 Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] samples: count=\(samples.count, privacy: .public) max=\(maxVal, privacy: .public)")
             }
+        }
+        return newCount
+    }
 
-            vadBuffer.append(samples)
-
-            while vadBuffer.count - vadReadIndex >= Self.vadChunkSize {
-                let chunk = vadBuffer.readChunk(start: vadReadIndex, size: Self.vadChunkSize)
-                vadReadIndex += Self.vadChunkSize
-
-                // O(1) consumption - eliminates quadratic behavior
-                if vadReadIndex > Self.vadChunkSize * 2 {
-                    vadBuffer.consume(vadReadIndex)
-                    vadReadIndex = 0
-                }
-                let wasSpeaking = isSpeaking
-
-                var startedSpeech = false
-                var endedSpeech = false
-                do {
-                    let result = try await vadManager.processStreamingChunk(
-                        chunk,
-                        state: vadState,
-                        config: .default,
-                        returnSeconds: true,
-                        timeResolution: 2
-                    )
-                    vadState = result.state
-
-                    if let event = result.event {
-                        switch event.kind {
-                        case .speechStart:
-                            if !wasSpeaking {
-                                isSpeaking = true
-                                startedSpeech = true
-                                // Rebuild speechSamples from recent chunks
-                                speechSamples.removeAll(keepingCapacity: true)
-                                for chunk in recentChunks.suffix(Self.prerollChunkCount) {
-                                    speechSamples.append(chunk)
-                                }
-                                Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech start")
-                            }
-
-                        case .speechEnd:
-                            endedSpeech = wasSpeaking || isSpeaking
-                        }
-                    }
-
-                    if wasSpeaking || startedSpeech || endedSpeech {
-                        speechSamples.append(chunk)
-                        recentChunks.removeAll(keepingCapacity: true)
-                    } else {
-                        recentChunks.append(chunk)
-                        if recentChunks.count > Self.prerollChunkCount {
-                            recentChunks.removeFirst(recentChunks.count - Self.prerollChunkCount)
-                        }
-                    }
-
-                    if endedSpeech {
-                        isSpeaking = false
-                        isRunningPartial = false
-                        Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech end, samples=\(speechSamples.count, privacy: .public)")
-                        if speechSamples.count > Self.minimumSpeechSamples {
-                            let segment = speechSamples.asContiguousArray()
-                            speechSamples.removeAll(keepingCapacity: true)
-                            onPartial("")  // Clear partial display
-                            await submitSegment(segment, using: segmentQueue)
-                        } else {
-                            speechSamples.removeAll(keepingCapacity: true)
-                            onPartial("")  // Clear partial display
-                        }
-                    } else if isSpeaking {
-
-                        // Throttled partial hypothesis every ~400ms.
-                        // Skipped for cloud backends — each call blocks the VAD loop
-                        // for seconds while the HTTP round-trip completes.
-                        if !skipPartials,
-                           !isRunningPartial,
-                           speechSamples.count > Self.minimumSpeechSamples,
-                           Date.now.timeIntervalSince(lastPartialTime) >= 0.4 {
-                            isRunningPartial = true
-                            lastPartialTime = .now
-                            let snapshot = speechSamples.asContiguousArray()
-                            do {
-                                let text = try await backend.transcribe(snapshot, locale: locale, previousContext: nil)
-                                if !text.isEmpty && !Task.isCancelled {
-                                    onPartial(text)
-                                }
-                            } catch {
-                                // Best-effort — ignore
-                            }
-                            isRunningPartial = false
-                        }
-
-                        // Flush on long continuous speech (see flushInterval)
-                        if speechSamples.count >= flushInterval {
-                            let segment = speechSamples.asContiguousArray()
-                            speechSamples.removeAll(keepingCapacity: true)
-                            onPartial("")  // Clear partial display
-                            await submitSegment(segment, using: segmentQueue)
-                        }
-                    }
-                } catch {
-                    Log.streaming.error("VAD error: \(error, privacy: .public)")
-                }
-            }
+    private func processVADBuffer(
+        vadBuffer: inout CircularAudioBuffer,
+        vadReadIndex: inout Int,
+        vadState: inout VadStreamState,
+        recentChunks: inout [[Float]],
+        speechSamples: inout ChunkedSpeechBuffer,
+        isSpeaking: inout Bool
+    ) async -> VADEventResult {
+        guard vadBuffer.count - vadReadIndex >= Self.vadChunkSize else {
+            return VADEventResult.noEvent
         }
 
+        let chunk = vadBuffer.readChunk(start: vadReadIndex, size: Self.vadChunkSize)
+        vadReadIndex += Self.vadChunkSize
+
+        // O(1) consumption - eliminates quadratic behavior
+        if vadReadIndex > Self.vadChunkSize * 2 {
+            vadBuffer.consume(vadReadIndex)
+            vadReadIndex = 0
+        }
+
+        let wasSpeaking = isSpeaking
+        var startedSpeech = false
+        var endedSpeech = false
+
+        do {
+            let result = try await vadManager.processStreamingChunk(
+                chunk,
+                state: vadState,
+                config: .default,
+                returnSeconds: true,
+                timeResolution: 2
+            )
+            vadState = result.state
+
+            if let event = result.event {
+                switch event.kind {
+                case .speechStart:
+                    if !wasSpeaking {
+                        isSpeaking = true
+                        startedSpeech = true
+                        // Rebuild speechSamples from recent chunks
+                        speechSamples.removeAll(keepingCapacity: true)
+                        for recentChunk in recentChunks.suffix(Self.prerollChunkCount) {
+                            speechSamples.append(recentChunk)
+                        }
+                        Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech start")
+                    }
+                case .speechEnd:
+                    endedSpeech = wasSpeaking || isSpeaking
+                }
+            }
+
+            updateSpeechAndRecentChunks(
+                wasSpeaking: wasSpeaking,
+                startedSpeech: startedSpeech,
+                endedSpeech: endedSpeech,
+                chunk: chunk,
+                speechSamples: &speechSamples,
+                recentChunks: &recentChunks
+            )
+
+            return VADEventResult(
+                endedSpeech: endedSpeech,
+                isSpeaking: isSpeaking,
+                speechSamplesCount: speechSamples.count
+            )
+        } catch {
+            Log.streaming.error("VAD error: \(error, privacy: .public)")
+            return VADEventResult.noEvent
+        }
+    }
+
+    private func updateSpeechAndRecentChunks(
+        wasSpeaking: Bool,
+        startedSpeech: Bool,
+        endedSpeech: Bool,
+        chunk: [Float],
+        speechSamples: inout ChunkedSpeechBuffer,
+        recentChunks: inout [[Float]]
+    ) {
+        if wasSpeaking || startedSpeech || endedSpeech {
+            speechSamples.append(chunk)
+            recentChunks.removeAll(keepingCapacity: true)
+        } else {
+            recentChunks.append(chunk)
+            if recentChunks.count > Self.prerollChunkCount {
+                recentChunks.removeFirst(recentChunks.count - Self.prerollChunkCount)
+            }
+        }
+    }
+
+    private func handleVADEvents(
+        vadResult: VADEventResult,
+        speechSamples: inout ChunkedSpeechBuffer,
+        recentChunks: inout [[Float]],
+        isSpeaking: inout Bool,
+        isRunningPartial: inout Bool,
+        lastPartialTime: inout Date,
+        segmentQueue: StreamingTranscriptionSegmentQueue?
+    ) async {
+        guard vadResult.hasEvent else { return }
+
+        if vadResult.endedSpeech {
+            isSpeaking = false
+            isRunningPartial = false
+            Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech end, samples=\(speechSamples.count, privacy: .public)")
+
+            if vadResult.speechSamplesCount > Self.minimumSpeechSamples {
+                let segment = speechSamples.asContiguousArray()
+                speechSamples.removeAll(keepingCapacity: true)
+                onPartial("")
+                await submitSegment(segment, using: segmentQueue)
+            } else {
+                speechSamples.removeAll(keepingCapacity: true)
+                onPartial("")
+            }
+        } else if isSpeaking {
+            await handlePartialTranscription(
+                speechSamples: &speechSamples,
+                isRunningPartial: &isRunningPartial,
+                lastPartialTime: &lastPartialTime
+            )
+
+            // Flush on long continuous speech
+            if speechSamples.count >= flushInterval {
+                let segment = speechSamples.asContiguousArray()
+                speechSamples.removeAll(keepingCapacity: true)
+                onPartial("")
+                await submitSegment(segment, using: segmentQueue)
+            }
+        }
+    }
+
+    private func handlePartialTranscription(
+        speechSamples: inout ChunkedSpeechBuffer,
+        isRunningPartial: inout Bool,
+        lastPartialTime: inout Date
+    ) async {
+        // Throttled partial hypothesis every ~400ms.
+        // Skipped for cloud backends — each call blocks the VAD loop
+        // for seconds while the HTTP round-trip completes.
+        guard !skipPartials,
+              !isRunningPartial,
+              speechSamples.count > Self.minimumSpeechSamples,
+              Date.now.timeIntervalSince(lastPartialTime) >= 0.4 else {
+            return
+        }
+
+        isRunningPartial = true
+        lastPartialTime = .now
+        let snapshot = speechSamples.asContiguousArray()
+
+        do {
+            let text = try await backend.transcribe(snapshot, locale: locale, previousContext: nil)
+            if !text.isEmpty && !Task.isCancelled {
+                onPartial(text)
+            }
+        } catch {
+            // Best-effort — ignore
+        }
+
+        isRunningPartial = false
+    }
+
+    private func finalizeRemainingSpeech(
+        speechSamples: ChunkedSpeechBuffer,
+        segmentQueue: StreamingTranscriptionSegmentQueue?
+    ) async {
         if speechSamples.count > Self.minimumSpeechSamples {
-            onPartial("")  // Clear partial display
+            onPartial("")
             await submitSegment(speechSamples.asContiguousArray(), using: segmentQueue)
         }
 
@@ -402,6 +497,18 @@ actor StreamingTranscriptionActor {
                 await segmentQueue.finish()
             }
         }
+    }
+
+    // MARK: - VAD Event Result Types
+
+    private struct VADEventResult {
+        let endedSpeech: Bool
+        let isSpeaking: Bool
+        let speechSamplesCount: Int
+
+        static let noEvent = VADEventResult(endedSpeech: false, isSpeaking: false, speechSamplesCount: 0)
+
+        var hasEvent: Bool { endedSpeech || isSpeaking }
     }
     
     // MARK: - Actor-Isolated Helpers
@@ -623,70 +730,133 @@ actor StreamingTranscriptionActor {
         let actualRate = effectiveSampleRate ?? sourceFormat.sampleRate
 
         // Fast path: already Float32 at 16kHz
-        if sourceFormat.commonFormat == .pcmFormatFloat32 && actualRate == 16000 {
-            guard let channelData = buffer.floatChannelData else { return nil }
-            if sourceFormat.channelCount == 1 {
-                return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            } else {
-                return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            }
+        if let samples = extractFastPathSamples(buffer: buffer, sourceFormat: sourceFormat, actualRate: actualRate) {
+            return samples
         }
 
+        // Prepare input buffer with downmixing or rate correction if needed
+        let inputBuffer = prepareInputBuffer(
+            buffer: buffer,
+            sourceFormat: sourceFormat,
+            actualRate: actualRate,
+            frameLength: frameLength
+        )
+
+        // Resample via AVAudioConverter
+        return resampleSamples(inputBuffer: inputBuffer)
+    }
+
+    // MARK: - Sample Extraction Helpers (Extracted to reduce CCN)
+
+    private func extractFastPathSamples(
+        buffer: AVAudioPCMBuffer,
+        sourceFormat: AVAudioFormat,
+        actualRate: Double
+    ) -> [Float]? {
+        guard sourceFormat.commonFormat == .pcmFormatFloat32 && actualRate == 16000,
+              let channelData = buffer.floatChannelData else {
+            return nil
+        }
+        return Array(UnsafeBufferPointer(start: channelData[0], count: Int(buffer.frameLength)))
+    }
+
+    private func prepareInputBuffer(
+        buffer: AVAudioPCMBuffer,
+        sourceFormat: AVAudioFormat,
+        actualRate: Double,
+        frameLength: Int
+    ) -> AVAudioPCMBuffer {
         // Downmix multi-channel to mono before resampling
-        // (AVAudioConverter mishandles deinterleaved multi-channel input)
-        // Uses vDSP for 5-8x speedup on Apple Silicon AMX.
-        var inputBuffer = buffer
-        let monoRate = actualRate
         if sourceFormat.channelCount > 1, let src = buffer.floatChannelData {
-            let monoFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: monoRate,
-                channels: 1,
-                interleaved: false
-            )!
-            if let monoBuf = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity),
-               let dst = monoBuf.floatChannelData?[0] {
-                monoBuf.frameLength = buffer.frameLength
-                let channels = Int(sourceFormat.channelCount)
-                let scale = 1.0 / Float(channels)
-
-                // vDSP optimized downmix: accumulate channels pairwise
-                if channels == 2 {
-                    vDSP_vadd(src[0], 1, src[1], 1, dst, 1, vDSP_Length(frameLength))
-                    var s = scale
-                    vDSP_vsmul(dst, 1, &s, dst, 1, vDSP_Length(frameLength))
-                } else {
-                    // Multi-channel: accumulate first, then scale
-                    vDSP_vadd(src[0], 1, src[1], 1, dst, 1, vDSP_Length(frameLength))
-                    for ch in 2..<channels {
-                        vDSP_vadd(dst, 1, src[ch], 1, dst, 1, vDSP_Length(frameLength))
-                    }
-                    var s = scale
-                    vDSP_vsmul(dst, 1, &s, dst, 1, vDSP_Length(frameLength))
-                }
-                inputBuffer = monoBuf
-            }
-        } else if effectiveSampleRate != nil, sourceFormat.channelCount == 1 {
-            // Mono but rate-corrected: re-wrap buffer with the effective rate so the
-            // converter uses the correct ratio.
-            let correctedFormat = AVAudioFormat(
-                commonFormat: sourceFormat.commonFormat,
-                sampleRate: monoRate,
-                channels: 1,
-                interleaved: sourceFormat.isInterleaved
-            )!
-            if let rewrapped = AVAudioPCMBuffer(pcmFormat: correctedFormat, frameCapacity: buffer.frameCapacity) {
-                rewrapped.frameLength = buffer.frameLength
-                if let srcData = buffer.floatChannelData?[0],
-                   let dstData = rewrapped.floatChannelData?[0] {
-                    memcpy(dstData, srcData, frameLength * MemoryLayout<Float>.size)
-                    inputBuffer = rewrapped
-                }
-            }
+            return downmixMultiChannelBuffer(
+                buffer: buffer,
+                sourceFormat: sourceFormat,
+                actualRate: actualRate,
+                frameLength: frameLength,
+                src: src
+            )
         }
 
-        // Slow path: need to resample via AVAudioConverter
+        // Mono but rate-corrected: re-wrap buffer with the effective rate
+        if effectiveSampleRate != nil, sourceFormat.channelCount == 1 {
+            return rewrapMonoBuffer(buffer: buffer, sourceFormat: sourceFormat, actualRate: actualRate, frameLength: frameLength)
+        }
+
+        return buffer
+    }
+
+    private func downmixMultiChannelBuffer(
+        buffer: AVAudioPCMBuffer,
+        sourceFormat: AVAudioFormat,
+        actualRate: Double,
+        frameLength: Int,
+        src: UnsafePointer<UnsafeMutablePointer<Float>>
+    ) -> AVAudioPCMBuffer {
+        let monoFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: actualRate,
+            channels: 1,
+            interleaved: false
+        )!
+
+        guard let monoBuf = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity),
+              let dst = monoBuf.floatChannelData?[0] else {
+            return buffer
+        }
+
+        monoBuf.frameLength = buffer.frameLength
+        let channels = Int(sourceFormat.channelCount)
+        let scale = 1.0 / Float(channels)
+
+        // vDSP optimized downmix: accumulate channels pairwise
+        if channels == 2 {
+            vDSP_vadd(src[0], 1, src[1], 1, dst, 1, vDSP_Length(frameLength))
+            var s = scale
+            vDSP_vsmul(dst, 1, &s, dst, 1, vDSP_Length(frameLength))
+        } else {
+            // Multi-channel: accumulate first, then scale
+            vDSP_vadd(src[0], 1, src[1], 1, dst, 1, vDSP_Length(frameLength))
+            for ch in 2..<channels {
+                vDSP_vadd(dst, 1, src[ch], 1, dst, 1, vDSP_Length(frameLength))
+            }
+            var s = scale
+            vDSP_vsmul(dst, 1, &s, dst, 1, vDSP_Length(frameLength))
+        }
+
+        return monoBuf
+    }
+
+    private func rewrapMonoBuffer(
+        buffer: AVAudioPCMBuffer,
+        sourceFormat: AVAudioFormat,
+        actualRate: Double,
+        frameLength: Int
+    ) -> AVAudioPCMBuffer {
+        let correctedFormat = AVAudioFormat(
+            commonFormat: sourceFormat.commonFormat,
+            sampleRate: actualRate,
+            channels: 1,
+            interleaved: sourceFormat.isInterleaved
+        )!
+
+        guard let rewrapped = AVAudioPCMBuffer(pcmFormat: correctedFormat, frameCapacity: buffer.frameCapacity) else {
+            return buffer
+        }
+
+        rewrapped.frameLength = buffer.frameLength
+        if let srcData = buffer.floatChannelData?[0],
+           let dstData = rewrapped.floatChannelData?[0] {
+            memcpy(dstData, srcData, frameLength * MemoryLayout<Float>.size)
+            return rewrapped
+        }
+
+        return buffer
+    }
+
+    private func resampleSamples(inputBuffer: AVAudioPCMBuffer) -> [Float]? {
         let inputFormat = inputBuffer.format
+
+        // Update converter if needed
         if converter == nil || converter?.inputFormat != inputFormat {
             converter = AVAudioConverter(from: inputFormat, to: targetFormat)
         }
@@ -781,6 +951,13 @@ struct StreamingTranscriber: Sendable {
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
         await actor.run(stream: stream)
+    }
+
+    // MARK: - Static Method Forwarding
+
+    /// Forward to the actor's static method for cloud diagnostics error message.
+    static func cloudDiagnosticsErrorMessage(for error: Error) -> String {
+        return StreamingTranscriptionActor.cloudDiagnosticsErrorMessage(for: error)
     }
 }
 
