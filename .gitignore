@@ -28,3 +28,5 @@ docs/superpowers/
 # Demo knowledge bases
 demo-kb/
 demo-kb-investor/
+investigations/mlx-audio-spike/test_data/*.tar.gz
+*.tar.gz
