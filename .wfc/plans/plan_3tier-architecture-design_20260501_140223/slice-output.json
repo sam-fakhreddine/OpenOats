@@ -1,89 +1,29 @@
 {
   "schema_version": "3.0",
-  "slices": [
-    {
-      "slice_id": "TASK-002",
-      "status": "completed",
-      "output": "TASK-002-domain-errors.md",
-      "seam_review": "seam-review-TASK-002.json",
-      "review_status": "passed"
-    },
-    {
-      "slice_id": "TASK-003",
-      "status": "completed",
-      "output": "TASK-003-core-identifiers.md",
-      "seam_review": "seam-review-TASK-003.json",
-      "review_status": "passed"
-    },
-    {
-      "slice_id": "TASK-006",
-      "status": "completed",
-      "output": "TASK-006-infrastructure-protocols.md",
-      "seam_review": "seam-review-TASK-006.json",
-      "review_status": "passed"
-    }
-  ],
-  "current": {
-    "slice_id": "TASK-006",
-    "slice_name": "Design Infrastructure Layer Protocols",
-    "plan_dir": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_3tier-architecture-design_20260501_140223",
-    "dependencies": ["TASK-001", "TASK-002", "TASK-003"],
-    "dependencies_satisfied": true,
-    "wave": 2,
-    "execution_mode": "DESIGN_ONLY",
-    "slice_type": "design",
-    "output_file": "TASK-006-infrastructure-protocols.md",
-    "acceptance_criteria_verified": {
-      "single_responsibility_protocols": true,
-      "async_await_signatures": true,
-      "no_layer_violations": true,
-      "swappable_implementations": true,
-      "example_format_followed": true
-    },
-    "formal_properties_satisfied": {
-      "SAFETY-006": true,
-      "SAFETY-007": true,
-      "LIVENESS-003": true,
-      "INVARIANT-002": true,
-      "INVARIANT-004": true,
-      "INVARIANT-005": true
-    },
-    "seam_review": {
-      "file": "seam-review-TASK-006.json",
-      "status": "passed",
-      "findings_count": 0
-    },
-    "next_recommended": {
-      "slice_id": "TASK-005",
-      "slice_name": "Design Business Logic Layer (Use Cases)",
-      "dependencies": ["TASK-001", "TASK-002", "TASK-004", "TASK-006"],
-      "ready": false,
-      "blocked_by": ["TASK-004"]
-    },
-    "blocking_issues": [],
-    "warnings": [],
-    "notes": [
-      "Created 10+ focused infrastructure protocols across 4 categories:",
-      "  - Transcription: TranscriptionService, StreamingTranscriptionService, BatchTranscriptionService",
-      "  - Audio: AudioCaptureService, AudioFormatService",
-      "  - Storage: SessionRepository, TranscriptRepository, SettingsRepository",
-      "  - AI: LLMService, EmbeddingService, SuggestionService",
-      "Defined supporting types: AudioBuffer, TranscriptionSegment, TranscriptionConfiguration, etc.",
-      "All protocols use async/await with Result types for error handling",
-      "ServiceFactory protocol enables dependency injection",
-      "Wave 1 (Foundation) and one Wave 2 task now complete"
-    ]
+  "from_skill": "wfc-slice",
+  "to_skill": "wfc-pm",
+  "step": "slice",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/slice-output.json",
+    "human": "TASKS.md"
   },
-  "wave_completion": {
-    "wave_1": {
-      "total_tasks": 3,
-      "completed": 3,
-      "status": "COMPLETE"
-    },
-    "wave_2": {
-      "total_tasks": 4,
-      "completed": 1,
-      "status": "IN_PROGRESS"
-    }
+  "payload": {
+    "current_slice_id": "TASK-018",
+    "slice_status": "done",
+    "conversation_mode": "continue",
+    "rework_count": 0,
+    "review_mode": "holistic",
+    "next_slice_id": null,
+    "stop_reason": "all_tasks_complete",
+    "completed_tasks": [
+      "TASK-004", "TASK-005", "TASK-010", "TASK-007", 
+      "TASK-015", "TASK-016", "TASK-017", "TASK-018"
+    ],
+    "previously_complete": ["TASK-001", "TASK-002", "TASK-003", "TASK-006"],
+    "total_complete": 12,
+    "remaining_tasks": ["TASK-008", "TASK-009", "TASK-011", "TASK-012", "TASK-013", "TASK-014"]
   }
 }

@@ -27,6 +27,43 @@
 - Prefer composition over inheritance
 - Avoid over-engineering (no speculative generality)
 
+### TDD (Test-Driven Development)
+- **RED**: Write failing test first (proves behavior doesn't exist)
+- **GREEN**: Implement minimum code to pass test
+- **REFACTOR**: Clean up while tests pass
+- **Context Isolation**: Test agent → Implementation agent (no context poisoning)
+
+### PROPERTY-BASED TESTING
+- **Generative**: Random inputs, not just hardcoded examples
+- **Invariant-based**: Test properties, not specific outputs
+- **Shrinking**: Find minimal failing case automatically
+- **Coverage**: Edge cases discovered automatically
+- **SwiftCheck**: Use SwiftCheck or similar framework
+
+---
+
+## TDD Workflow (Agent Handoff)
+
+### Phase 1: Test Agent (RED)
+**Agent A**: Writes comprehensive tests
+- Property-based tests for invariants
+- Example-based tests for specific cases
+- Edge case identification
+- **Output**: Test file with all tests failing
+
+### Phase 2: Implementation Agent (GREEN)
+**Agent B**: Implements to pass tests
+- **Constraint**: Cannot see test implementation details
+- Only sees test signatures and expected behavior
+- Implements minimum code to make tests pass
+- **Output**: Implementation + passing tests
+
+### Phase 3: Refactor Agent (Optional)
+**Agent C**: Code quality improvements
+- Refactors while maintaining test passes
+- Performance optimizations
+- Documentation
+
 ---
 
 ## MLX Work Reuse Strategy
