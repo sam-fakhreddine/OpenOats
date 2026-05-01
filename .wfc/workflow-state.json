@@ -46,7 +46,9 @@
       "name": "Performance vDSP & Circular Buffers",
       "branch": "perf/vdsp-circular-buffer",
       "commit": "b176508",
-      "status": "READY_TO_MERGE",
+      "status": "MERGED",
+      "merged_date": "2026-05-01T17:50:00Z",
+      "merge_commit": "df2ccfa",
       "changes": [
         "CircularAudioBuffer O(1)",
         "ChunkedSpeechBuffer bounded",
@@ -54,16 +56,17 @@
         "vDSP_vadd/vsmul 4-6x speedup"
       ],
       "tests": "performance_benchmarks_pass",
-      "review": "pending",
-      "blockers": [],
-      "merge_command": "git merge --no-ff --no-squash perf/vdsp-circular-buffer"
+      "review": "approved",
+      "blockers": []
     },
     {
       "id": 4,
       "name": "Complexity CCN Reduction",
       "branch": "refactor/complexity-ccn-reduction",
       "commit": "59131cc",
-      "status": "READY_TO_MERGE",
+      "status": "MERGED",
+      "merged_date": "2026-05-01T17:55:00Z",
+      "merge_commit": "1459da5",
       "changes": [
         "finalizeCurrentSession CCN 32→15",
         "StreamingTranscriber.run CCN 29→15",
@@ -71,9 +74,8 @@
         "extractSamples CCN 22→15"
       ],
       "tests": "eedom_scan_passes",
-      "review": "pending",
-      "blockers": [],
-      "merge_command": "git merge --no-ff --no-squash refactor/complexity-ccn-reduction"
+      "review": "approved",
+      "blockers": []
     }
   ],
   "workflow_rules": {
@@ -120,13 +122,22 @@
     },
     "slice_version_policy": "Slices inherit base branch version. All slices merged = v2.0.0 (BREAKING)",
     "tagging_strategy": "Tag integration branch AFTER all slices merged: v2.0.0",
-    "migration_guide_required": true
+    "migration_guide_required": true,
+    "all_slices_merged": true,
+    "ready_for_tag": true
   },
+  "completion": {
+    "status": "ALL_SLICES_MERGED",
+    "date": "2026-05-01T17:55:00Z",
+    "next_step": "TAG_AND_RELEASE",
+    "action": "Run: git tag -a v2.0.0 && git push fork v2.0.0"
+  }
   "metrics": {
     "total_slices": 4,
-    "merged": 2,
-    "ready": 2,
+    "merged": 4,
+    "ready": 0,
     "blocked": 0,
+    "completion_percentage": 100,
     "compilation_errors_fixed": 7,
     "security_high_findings_fixed": 6,
     "performance_optimizations": 4,
