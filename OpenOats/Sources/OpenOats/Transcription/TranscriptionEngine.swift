@@ -228,7 +228,7 @@ final class TranscriptionEngine {
         self.mode = mode
         switch mode {
         case .live:
-            self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel, modelStorageURL: settings.modelStorageURL)
         case .scripted:
             self.needsModelDownload = false
         }
@@ -237,7 +237,7 @@ final class TranscriptionEngine {
     func refreshModelAvailability() {
         switch mode {
         case .live:
-            needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel, modelStorageURL: settings.modelStorageURL)
         case .scripted:
             needsModelDownload = false
         }
@@ -283,7 +283,8 @@ final class TranscriptionEngine {
             let backend = transcriptionModel.makeBackend(
                 customVocabulary: settings.transcriptionCustomVocabulary,
                 apiKey: apiKey,
-                removeFillerWords: settings.removeFillerWords
+                removeFillerWords: settings.removeFillerWords,
+                modelStorageURL: settings.modelStorageURL
             )
             try await prepareBackend(backend)
             preparedCloudStartBackend = PreparedCloudStartBackend(model: transcriptionModel, backend: backend)
@@ -326,7 +327,10 @@ final class TranscriptionEngine {
         beginDownloadTracking(for: transcriptionModel)
 
         let vocab = settings.transcriptionCustomVocabulary
-        let backend = transcriptionModel.makeBackend(customVocabulary: vocab)
+        let backend = transcriptionModel.makeBackend(
+            customVocabulary: vocab,
+            modelStorageURL: settings.modelStorageURL
+        )
         do {
             try await prepareBackend(backend)
             needsModelDownload = false
@@ -340,7 +344,7 @@ final class TranscriptionEngine {
             lastError = "Failed to download: \(error.localizedDescription)"
             assetStatus = "Ready"
             clearDownloadTracking()
-            transcriptionModel.makeBackend().clearModelCache()
+            transcriptionModel.makeBackend(modelStorageURL: settings.modelStorageURL).clearModelCache()
             needsModelDownload = true
         }
     }
@@ -416,7 +420,8 @@ final class TranscriptionEngine {
                 mic = transcriptionModel.makeBackend(
                     customVocabulary: vocab,
                     apiKey: apiKey,
-                    removeFillerWords: noFiller
+                    removeFillerWords: noFiller,
+                    modelStorageURL: settings.modelStorageURL
                 )
                 try await prepareBackend(mic)
             }
@@ -427,7 +432,12 @@ final class TranscriptionEngine {
             if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
                 self.systemBackend = mic
             } else {
-                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
+                let sys = transcriptionModel.makeBackend(
+                    customVocabulary: vocab,
+                    apiKey: apiKey,
+                    removeFillerWords: noFiller,
+                    modelStorageURL: settings.modelStorageURL
+                )
                 try await sys.prepare { _ in }
                 self.systemBackend = sys
             }
@@ -1099,9 +1109,9 @@ final class TranscriptionEngine {
         return "No default microphone is currently available."
     }
 
-    private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
+    private static func modelNeedsDownload(_ model: TranscriptionModel, modelStorageURL: URL? = nil) -> Bool {
         guard !model.isCloud else { return false }
-        let backend = model.makeBackend()
+        let backend = model.makeBackend(modelStorageURL: modelStorageURL)
         if case .needsDownload = backend.checkStatus() {
             return true
         }

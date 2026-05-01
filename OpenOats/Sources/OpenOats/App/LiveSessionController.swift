@@ -939,6 +939,7 @@ final class LiveSessionController {
             let repo = coordinator.sessionRepository
             let diarize = settings.enableDiarization
             let diarizeVariant = settings.diarizationVariant
+            let modelStorage = settings.modelStorageURL
             Task.detached { [batchAudioTranscriber] in
                 await batchAudioTranscriber.process(
                     sessionID: batchSessionID,
@@ -947,7 +948,8 @@ final class LiveSessionController {
                     sessionRepository: repo,
                     notesDirectory: notesDir,
                     enableDiarization: diarize,
-                    diarizationVariant: diarizeVariant
+                    diarizationVariant: diarizeVariant,
+                    modelStorageURL: modelStorage
                 )
             }
         }

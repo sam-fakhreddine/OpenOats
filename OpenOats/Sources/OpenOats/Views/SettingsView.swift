@@ -542,6 +542,39 @@ private struct TranscriptionSettingsTab: View {
                         .font(.system(size: 12))
                     }
                 }
+
+                Section("Model Storage") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(settings.modelStoragePath.isEmpty ? "Default Location" : settings.modelStoragePath)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .foregroundStyle(settings.modelStoragePath.isEmpty ? .secondary : .primary)
+
+                            Spacer()
+
+                            Button("Choose...") {
+                                selectModelStorageFolder()
+                            }
+                            .font(.system(size: 12))
+                            .controlSize(.small)
+
+                            if !settings.modelStoragePath.isEmpty {
+                                Button("Reset") {
+                                    settings.modelStoragePath = ""
+                                }
+                                .font(.system(size: 12))
+                                .controlSize(.small)
+                            }
+                        }
+
+                        Text("Store transcription models on an external drive to save space on your main drive. Changing this location does not move existing models.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             .formStyle(.grouped)
         }
@@ -646,6 +679,27 @@ private struct TranscriptionSettingsTab: View {
         elevenLabsValidationTask?.cancel()
         elevenLabsValidationTask = nil
         isValidatingElevenLabsKey = false
+    }
+
+    private func selectModelStorageFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select"
+        panel.message = "Choose a folder to store transcription models"
+
+        // Start at current location if set, otherwise default location
+        if !settings.modelStoragePath.isEmpty,
+           FileManager.default.fileExists(atPath: settings.modelStoragePath) {
+            panel.directoryURL = URL(fileURLWithPath: settings.modelStoragePath)
+        } else {
+            panel.directoryURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.modelStoragePath = url.path
+        }
     }
 }
 

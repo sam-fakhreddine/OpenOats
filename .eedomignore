@@ -1,0 +1,23 @@
+# Swift Package Manager build artifacts and checkouts
+.build/
+
+# Investigation spikes (vendored dependencies, not production code)
+investigations/
+
+# Xcode build artifacts
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Node build output
+node_modules/
+dist/
+
+# Python artifacts
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+
+# Eedom working directory
+.temp/

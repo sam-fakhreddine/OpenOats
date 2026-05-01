@@ -308,7 +308,8 @@ actor BatchAudioTranscriber {
         sessionRepository: SessionRepository,
         notesDirectory: URL,
         enableDiarization: Bool = false,
-        diarizationVariant: DiarizationVariant = .dihard3
+        diarizationVariant: DiarizationVariant = .dihard3,
+        modelStorageURL: URL? = nil
     ) async {
         // Cancel any existing task
         currentTask?.cancel()
@@ -325,7 +326,8 @@ actor BatchAudioTranscriber {
                     sessionRepository: sessionRepository,
                     notesDirectory: notesDirectory,
                     enableDiarization: enableDiarization,
-                    diarizationVariant: diarizationVariant
+                    diarizationVariant: diarizationVariant,
+                    modelStorageURL: modelStorageURL
                 )
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
@@ -361,7 +363,8 @@ actor BatchAudioTranscriber {
         sessionID: String,
         model: TranscriptionModel,
         locale: Locale,
-        sessionRepository: SessionRepository
+        sessionRepository: SessionRepository,
+        modelStorageURL: URL? = nil
     ) async {
         currentTask?.cancel()
         isImporting = true
@@ -375,7 +378,8 @@ actor BatchAudioTranscriber {
                     sessionID: sessionID,
                     model: model,
                     locale: locale,
-                    sessionRepository: sessionRepository
+                    sessionRepository: sessionRepository,
+                    modelStorageURL: modelStorageURL
                 )
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
@@ -400,14 +404,15 @@ actor BatchAudioTranscriber {
         sessionID: String,
         model: TranscriptionModel,
         locale: Locale,
-        sessionRepository: SessionRepository
+        sessionRepository: SessionRepository,
+        modelStorageURL: URL? = nil
     ) async throws {
         Log.batchTranscription.info("Starting audio import for \(sessionID, privacy: .public) from \(url.lastPathComponent, privacy: .public)")
         DiagnosticsSupport.record(category: "batch", message: "Starting audio import for \(sessionID) model=\(model.rawValue)")
         status = .loading(model: model.displayName)
 
         // Prepare backend and VAD
-        let backend = model.makeBackend()
+        let backend = model.makeBackend(modelStorageURL: modelStorageURL)
         try await backend.prepare { statusMsg in
             Log.batchTranscription.debug("Backend: \(statusMsg, privacy: .public)")
         }
@@ -504,7 +509,8 @@ actor BatchAudioTranscriber {
         sessionRepository: SessionRepository,
         notesDirectory: URL,
         enableDiarization: Bool,
-        diarizationVariant: DiarizationVariant
+        diarizationVariant: DiarizationVariant,
+        modelStorageURL: URL? = nil
     ) async throws {
         Log.batchTranscription.info("Starting batch transcription for \(sessionID, privacy: .public) with \(model.rawValue, privacy: .public)")
         DiagnosticsSupport.record(category: "batch", message: "Starting batch transcription for \(sessionID) model=\(model.rawValue)")
@@ -523,7 +529,7 @@ actor BatchAudioTranscriber {
         let anchors = await loadBatchMeta(sessionID: sessionID, sessionRepository: sessionRepository)
 
         // Create and prepare backend
-        let backend = model.makeBackend()
+        let backend = model.makeBackend(modelStorageURL: modelStorageURL)
         try await backend.prepare { statusMsg in
             Log.batchTranscription.debug("Backend: \(statusMsg, privacy: .public)")
         }

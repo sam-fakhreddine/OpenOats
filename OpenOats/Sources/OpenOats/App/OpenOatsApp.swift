@@ -194,7 +194,8 @@ extension OpenOatsRootApp {
                 sessionID: sessionID,
                 model: model,
                 locale: locale,
-                sessionRepository: repo
+                sessionRepository: repo,
+                modelStorageURL: settings.modelStorageURL
             )
 
             // Check result

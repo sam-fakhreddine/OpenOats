@@ -4,23 +4,32 @@ import MLXAudioSTT
 
 /// Transcription backend for MLX Audio models (GLMASR 9B 4bit quantized).
 /// Uses Apple's Metal GPU for high-performance local transcription.
-/// 
+///
 /// @unchecked Sendable: model is written once in prepare() before any transcribe() calls.
 final class MLXWhisperBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName = "MLX Whisper (GLMASR 9B)"
-    
+
     /// The MLX model instance - loaded during prepare()
     private var model: GLMASRModel?
-    
+
     /// Model repository identifier
     private let modelRepo = "mlx-community/GLM-ASR-Nano-2512-4bit"
-    
+
+    /// Custom cache directory for MLX models (optional)
+    private let customCacheDirectory: URL?
+
     /// Cache directory for MLX models
     private var cacheDirectory: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        customCacheDirectory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent("huggingface")
             .appendingPathComponent("hub")
             .appendingPathComponent("mlx-audio")
+    }
+
+    /// Creates a new MLX Whisper backend.
+    /// - Parameter customCacheDirectory: Optional custom directory for model storage. If nil, uses default cache.
+    init(customCacheDirectory: URL? = nil) {
+        self.customCacheDirectory = customCacheDirectory
     }
     
     func checkStatus() -> BackendStatus {

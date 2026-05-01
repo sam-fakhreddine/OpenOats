@@ -1106,6 +1106,30 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _modelStoragePath: String
+    var modelStoragePath: String {
+        get { access(keyPath: \.modelStoragePath); return _modelStoragePath }
+        set {
+            withMutation(keyPath: \.modelStoragePath) {
+                _modelStoragePath = newValue
+                defaults.set(newValue, forKey: "modelStoragePath")
+            }
+        }
+    }
+
+    /// Returns the effective model storage URL. If a custom path is set, uses that; otherwise uses default cache.
+    var modelStorageURL: URL {
+        if !_modelStoragePath.isEmpty,
+           FileManager.default.fileExists(atPath: _modelStoragePath) {
+            return URL(fileURLWithPath: _modelStoragePath)
+        }
+        // Default: ~/Library/Caches/huggingface/hub/mlx-audio
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("huggingface")
+            .appendingPathComponent("hub")
+            .appendingPathComponent("mlx-audio")
+    }
+
     // MARK: - Initialization
 
     init(storage: SettingsStorage = .live()) {
@@ -1288,6 +1312,7 @@ final class SettingsStore {
         ) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
+        self._modelStoragePath = defaults.string(forKey: "modelStoragePath") ?? ""
 
         // Ensure notes folder exists
         try? FileManager.default.createDirectory(
