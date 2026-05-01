@@ -106,7 +106,17 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         
         // Use withSecureAccess to temporarily access the API key
         try await secureAPIKey.withSecureAccess { apiKey in
-            var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript?limit=1")!)
+            // SEC-004 Fix: Use SecureURLConstruction to prevent URL injection
+            let url = try SecureURLConstruction.assemblyAPIURL(path: "transcript")
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+                throw CloudASRError.invalidAPIKey(backend: "AssemblyAI")
+            }
+            components.queryItems = [URLQueryItem(name: "limit", value: "1")]
+            guard let finalURL = components.url else {
+                throw CloudASRError.invalidAPIKey(backend: "AssemblyAI")
+            }
+            
+            var request = URLRequest(url: finalURL)
             request.httpMethod = "GET"
             request.setValue(apiKey, forHTTPHeaderField: "Authorization")
             
@@ -164,7 +174,10 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
 
     private func upload(_ data: Data) async throws -> URL {
         try await secureAPIKey.withSecureAccess { apiKey in
-            var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/upload")!)
+            // SEC-005 Fix: Use SecureURLConstruction to prevent URL injection
+            let uploadURL = try SecureURLConstruction.assemblyAPIURL(path: "upload")
+            
+            var request = URLRequest(url: uploadURL)
             request.httpMethod = "POST"
             request.setValue(apiKey, forHTTPHeaderField: "Authorization")
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
@@ -205,7 +218,10 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         }
         
         return try await secureAPIKey.withSecureAccess { apiKey in
-            var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript")!)
+            // SEC-006 Fix: Use SecureURLConstruction to prevent URL injection
+            let transcriptURL = try SecureURLConstruction.assemblyAPIURL(path: "transcript")
+            
+            var request = URLRequest(url: transcriptURL)
             request.httpMethod = "POST"
             request.setValue(apiKey, forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
