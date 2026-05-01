@@ -653,27 +653,116 @@ final class LiveSessionController {
 
     func finalizeCurrentSession(settings: AppSettings?) async {
         // 0. Flush scratchpad
-        scratchpadSaveTask?.cancel()
-        if let sessionID = _currentSessionID, !state.scratchpadText.isEmpty {
-            await coordinator.sessionRepository.saveScratchpad(sessionID: sessionID, text: state.scratchpadText)
-        }
+        await finalizeScratchpad()
 
         let captureHealthAtStop = coordinator.transcriptionEngine?.captureHealthSnapshot
         let wasMicMutedAtStop = state.isMicMuted
         let peakAudioLevelAtStop = observedPeakAudioLevelSinceStart
 
-        // 1. Drain audio buffers
+        // 1. Drain audio buffers and pending writes
+        await drainAudioAndCleanupBuffers(settings: settings)
+
+        // 2. Build finalization metadata
+        let (sessionID, utterancesSnapshot, utteranceCount, endingMetadata) = await buildSessionMetadata()
+        let (title, meetingAppName, engineName, transcriptionLanguage) = buildFinalizationContext(
+            settings: settings,
+            endingMetadata: endingMetadata
+        )
+
+        let recordingHealthInput = buildRecordingHealthInput(
+            endingMetadata: endingMetadata,
+            settings: settings,
+            utteranceCount: utteranceCount,
+            peakAudioLevelAtStop: peakAudioLevelAtStop,
+            captureHealthAtStop: captureHealthAtStop,
+            wasMicMutedAtStop: wasMicMutedAtStop
+        )
+        let transcriptIssue = Self.transcriptIssue(for: recordingHealthInput)
+        let emptySessionClassification = Self.emptySessionDiagnosticClassification(for: recordingHealthInput)
+
+        // 3. Finalize session in repository
+        await finalizeSessionInRepository(
+            sessionID: sessionID,
+            utteranceCount: utteranceCount,
+            title: title,
+            transcriptionLanguage: transcriptionLanguage,
+            meetingAppName: meetingAppName,
+            engineName: engineName,
+            utterancesSnapshot: utterancesSnapshot,
+            endingMetadata: endingMetadata,
+            transcriptIssue: transcriptIssue,
+            settings: settings
+        )
+
+        // 4. Build session index and export
+        let index = buildSessionIndex(
+            sessionID: sessionID,
+            utterancesSnapshot: utterancesSnapshot,
+            utteranceCount: utteranceCount,
+            title: title,
+            transcriptionLanguage: transcriptionLanguage,
+            meetingAppName: meetingAppName,
+            engineName: engineName,
+            transcriptIssue: transcriptIssue,
+            endingMetadata: endingMetadata
+        )
+        exportSessionData(settings: settings, index: index, utterancesSnapshot: utterancesSnapshot)
+
+        // 5. Handle audio recording and batch audio retention
+        let (retainedBatchAudio, forcedRecoveryBatch) = await handleAudioRecording(
+            settings: settings,
+            sessionID: sessionID,
+            utteranceCount: utteranceCount
+        )
+
+        // 6. Handle empty session recovery and ghost session reconciliation
+        let (effectiveIndex, shouldRunBatchRetranscription) = await handleSessionRecovery(
+            settings: settings,
+            index: index,
+            sessionID: sessionID,
+            utteranceCount: utteranceCount,
+            retainedBatchAudio: retainedBatchAudio,
+            forcedRecoveryBatch: forcedRecoveryBatch,
+            recordingHealthInput: recordingHealthInput,
+            emptySessionClassification: emptySessionClassification
+        )
+
+        // 7. Update UI state and refresh history
+        await updateFinalizationUIState(
+            effectiveIndex: effectiveIndex,
+            retainedBatchAudio: retainedBatchAudio,
+            utteranceCount: utteranceCount,
+            shouldRunBatchRetranscription: shouldRunBatchRetranscription
+        )
+
+        // 8. Kick off batch transcription if enabled
+        await kickoffBatchTranscriptionIfEnabled(
+            settings: settings,
+            shouldRunBatchRetranscription: shouldRunBatchRetranscription,
+            sessionID: sessionID
+        )
+    }
+
+    // MARK: - Finalization Helpers (Extracted to reduce CCN)
+
+    private func finalizeScratchpad() async {
+        scratchpadSaveTask?.cancel()
+        if let sessionID = _currentSessionID, !state.scratchpadText.isEmpty {
+            await coordinator.sessionRepository.saveScratchpad(sessionID: sessionID, text: state.scratchpadText)
+        }
+    }
+
+    private func drainAudioAndCleanupBuffers(settings: AppSettings?) async {
         await coordinator.transcriptionEngine?.finalize()
 
-        // 1b. Drain pending cleanups
         if let settings, settings.enableLiveTranscriptCleanup {
             await coordinator.liveTranscriptCleaner?.drain(timeout: .seconds(5))
         }
 
-        // 2. Drain delayed JSONL writes
         await coordinator.sessionRepository.awaitPendingWrites()
+    }
 
-        // 3. Build finalization metadata
+    private func buildSessionMetadata() async -> (sessionID: String, utterances: [Utterance], count: Int, metadata: MeetingMetadata?) {
         let sessionID: String
         if let id = _currentSessionID {
             sessionID = id
@@ -682,25 +771,45 @@ final class LiveSessionController {
         } else {
             sessionID = "unknown"
         }
+
         let utterancesSnapshot = coordinator.transcriptStore.utterances
         let utteranceCount = utterancesSnapshot.count
-        let endingMetadata: MeetingMetadata?
-        if case .ending(let metadata) = coordinator.state {
-            endingMetadata = metadata
-        } else {
-            endingMetadata = nil
-        }
+        let endingMetadata: MeetingMetadata? = {
+            if case .ending(let metadata) = coordinator.state {
+                return metadata
+            }
+            return nil
+        }()
+
+        return (sessionID, utterancesSnapshot, utteranceCount, endingMetadata)
+    }
+
+    private func buildFinalizationContext(
+        settings: AppSettings?,
+        endingMetadata: MeetingMetadata?
+    ) -> (title: String?, meetingApp: String?, engine: String?, language: String?) {
         let metadataTitle = endingMetadata?.title ?? endingMetadata?.calendarEvent?.title
         let title = coordinator.transcriptStore.conversationState.currentTopic.isEmpty
             ? metadataTitle : coordinator.transcriptStore.conversationState.currentTopic
         let meetingAppName = endingMetadata?.detectionContext?.meetingApp?.name
-
         let engineName = settings?.transcriptionModel.rawValue
         let transcriptionLanguage: String? = {
             guard let locale = settings?.transcriptionLocale, !locale.isEmpty else { return nil }
             return locale
         }()
-        let recordingHealthInput = RecordingHealthInput(
+
+        return (title, meetingAppName, engineName, transcriptionLanguage)
+    }
+
+    private func buildRecordingHealthInput(
+        endingMetadata: MeetingMetadata?,
+        settings: AppSettings?,
+        utteranceCount: Int,
+        peakAudioLevelAtStop: Float,
+        captureHealthAtStop: CaptureHealthSnapshot?,
+        wasMicMutedAtStop: Bool
+    ) -> RecordingHealthInput {
+        return RecordingHealthInput(
             elapsed: max(0, Date().timeIntervalSince(endingMetadata?.startedAt ?? Date())),
             transcriptionModel: settings?.transcriptionModel ?? .parakeetV3,
             utteranceCount: utteranceCount,
@@ -712,10 +821,20 @@ final class LiveSessionController {
             isRecordingPaused: coordinator.transcriptionEngine?.isRecordingPaused ?? false,
             hasBlockingError: false
         )
-        let transcriptIssue = Self.transcriptIssue(for: recordingHealthInput)
-        let emptySessionClassification = Self.emptySessionDiagnosticClassification(for: recordingHealthInput)
+    }
 
-        // 4. Finalize: closes file handle, backfills cleaned text, writes session.json
+    private func finalizeSessionInRepository(
+        sessionID: String,
+        utteranceCount: Int,
+        title: String?,
+        transcriptionLanguage: String?,
+        meetingAppName: String?,
+        engineName: String?,
+        utterancesSnapshot: [Utterance],
+        endingMetadata: MeetingMetadata?,
+        transcriptIssue: SessionTranscriptIssue?,
+        settings: AppSettings?
+    ) async {
         await coordinator.sessionRepository.finalizeSession(
             sessionID: sessionID,
             metadata: SessionFinalizeMetadata(
@@ -737,9 +856,20 @@ final class LiveSessionController {
            let folderPath = settings.meetingFamilyPreferences(for: event)?.folderPath {
             await coordinator.sessionRepository.updateSessionFolder(sessionID: sessionID, folderPath: folderPath)
         }
+    }
 
-        // 5. Build index for UI state
-        let index = SessionIndex(
+    private func buildSessionIndex(
+        sessionID: String,
+        utterancesSnapshot: [Utterance],
+        utteranceCount: Int,
+        title: String?,
+        transcriptionLanguage: String?,
+        meetingAppName: String?,
+        engineName: String?,
+        transcriptIssue: SessionTranscriptIssue?,
+        endingMetadata: MeetingMetadata?
+    ) -> SessionIndex {
+        return SessionIndex(
             id: sessionID,
             startedAt: utterancesSnapshot.first?.timestamp ?? endingMetadata?.startedAt ?? Date(),
             endedAt: Date(),
@@ -752,103 +882,149 @@ final class LiveSessionController {
             engine: engineName,
             transcriptIssue: transcriptIssue
         )
+    }
 
-        // 5b. Fire webhook if configured
+    private func exportSessionData(settings: AppSettings?, index: SessionIndex, utterancesSnapshot: [Utterance]) {
         if let settings {
             WebhookService.fireIfEnabled(
                 settings: settings,
                 sessionIndex: index,
                 utterances: utterancesSnapshot
             )
-        }
-
-        // 5c. Export to Apple Notes if configured
-        if let settings {
             AppleNotesService.exportIfEnabled(
                 settings: settings,
                 sessionIndex: index,
                 utterances: utterancesSnapshot
             )
         }
+    }
 
-        // 6. Handle audio recording
-        var retainedBatchAudio = false
-        var forcedRecoveryBatch = false
-        if let settings, let recorder = coordinator.audioRecorder {
-            let audioRetentionPlan = Self.audioRetentionPlan(settings: settings, utteranceCount: utteranceCount)
-            let wantsBatch = audioRetentionPlan.shouldRetainBatchAudio
-            let wantsExport = audioRetentionPlan.shouldExportRecording
-            forcedRecoveryBatch = audioRetentionPlan.shouldRunRecoveryBatch
-
-            if wantsBatch && wantsExport {
-                let tempURLs = recorder.tempFileURLs()
-                let anchorsData = recorder.timingAnchors()
-                let fm = FileManager.default
-
-                let copiedMic: URL?
-                if let micSrc = tempURLs.mic, fm.fileExists(atPath: micSrc.path) {
-                    let dst = URL(fileURLWithPath: NSTemporaryDirectory())
-                        .appendingPathComponent("batch_mic_\(sessionID).caf")
-                    try? fm.copyItem(at: micSrc, to: dst)
-                    copiedMic = dst
-                } else {
-                    copiedMic = nil
-                }
-
-                let copiedSys: URL?
-                if let sysSrc = tempURLs.sys, fm.fileExists(atPath: sysSrc.path) {
-                    let dst = URL(fileURLWithPath: NSTemporaryDirectory())
-                        .appendingPathComponent("batch_sys_\(sessionID).caf")
-                    try? fm.copyItem(at: sysSrc, to: dst)
-                    copiedSys = dst
-                } else {
-                    copiedSys = nil
-                }
-
-                retainedBatchAudio = copiedMic != nil || copiedSys != nil
-                await coordinator.sessionRepository.stashAudioForBatch(
-                    sessionID: sessionID,
-                    micURL: copiedMic,
-                    sysURL: copiedSys,
-                    anchors: BatchAnchors(
-                        micStartDate: anchorsData.micStartDate,
-                        sysStartDate: anchorsData.sysStartDate,
-                        micAnchors: anchorsData.micAnchors,
-                        sysAnchors: anchorsData.sysAnchors,
-                        sysEffectiveSampleRate: anchorsData.sysEffectiveSampleRate
-                    )
-                )
-
-                await recorder.finalizeRecording()
-            } else if wantsBatch {
-                let sealed = recorder.sealForBatch()
-                retainedBatchAudio = sealed.mic != nil || sealed.sys != nil
-                await coordinator.sessionRepository.stashAudioForBatch(
-                    sessionID: sessionID,
-                    micURL: sealed.mic,
-                    sysURL: sealed.sys,
-                    anchors: BatchAnchors(
-                        micStartDate: sealed.micStartDate,
-                        sysStartDate: sealed.sysStartDate,
-                        micAnchors: sealed.micAnchors,
-                        sysAnchors: sealed.sysAnchors,
-                        sysEffectiveSampleRate: sealed.sysEffectiveSampleRate
-                    )
-                )
-            } else if wantsExport {
-                await recorder.finalizeRecording()
-            } else {
-                recorder.discardRecording()
-            }
+    private func handleAudioRecording(
+        settings: AppSettings?,
+        sessionID: String,
+        utteranceCount: Int
+    ) async -> (retainedBatchAudio: Bool, forcedRecoveryBatch: Bool) {
+        guard let settings, let recorder = coordinator.audioRecorder else {
+            return (false, false)
         }
 
-        // 7. Collapse obviously empty duplicate sessions back into the real meeting session.
+        let audioRetentionPlan = Self.audioRetentionPlan(settings: settings, utteranceCount: utteranceCount)
+        let wantsBatch = audioRetentionPlan.shouldRetainBatchAudio
+        let wantsExport = audioRetentionPlan.shouldExportRecording
+        let forcedRecoveryBatch = audioRetentionPlan.shouldRunRecoveryBatch
+
+        if wantsBatch && wantsExport {
+            await handleBatchAndExportRecording(recorder: recorder, sessionID: sessionID)
+        } else if wantsBatch {
+            await handleBatchOnlyRecording(recorder: recorder, sessionID: sessionID)
+        } else if wantsExport {
+            await recorder.finalizeRecording()
+        } else {
+            recorder.discardRecording()
+        }
+
+        return await checkRetainedBatchAudio(sessionID: sessionID)
+    }
+
+    private func handleBatchAndExportRecording(recorder: AudioRecorder, sessionID: String) async {
+        let tempURLs = recorder.tempFileURLs()
+        let anchorsData = recorder.timingAnchors()
+        let fm = FileManager.default
+
+        let copiedMic = copyAudioFileIfExists(source: tempURLs.mic, destinationFileName: "batch_mic_\(sessionID).caf", fileManager: fm)
+        let copiedSys = copyAudioFileIfExists(source: tempURLs.sys, destinationFileName: "batch_sys_\(sessionID).caf", fileManager: fm)
+
+        await coordinator.sessionRepository.stashAudioForBatch(
+            sessionID: sessionID,
+            micURL: copiedMic,
+            sysURL: copiedSys,
+            anchors: BatchAnchors(
+                micStartDate: anchorsData.micStartDate,
+                sysStartDate: anchorsData.sysStartDate,
+                micAnchors: anchorsData.micAnchors,
+                sysAnchors: anchorsData.sysAnchors,
+                sysEffectiveSampleRate: anchorsData.sysEffectiveSampleRate
+            )
+        )
+
+        await recorder.finalizeRecording()
+    }
+
+    private func copyAudioFileIfExists(source: URL?, destinationFileName: String, fileManager: FileManager) -> URL? {
+        guard let source = source, fileManager.fileExists(atPath: source.path) else { return nil }
+        let destination = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(destinationFileName)
+        try? fileManager.copyItem(at: source, to: destination)
+        return destination
+    }
+
+    private func handleBatchOnlyRecording(recorder: AudioRecorder, sessionID: String) async {
+        let sealed = recorder.sealForBatch()
+        await coordinator.sessionRepository.stashAudioForBatch(
+            sessionID: sessionID,
+            micURL: sealed.mic,
+            sysURL: sealed.sys,
+            anchors: BatchAnchors(
+                micStartDate: sealed.micStartDate,
+                sysStartDate: sealed.sysStartDate,
+                micAnchors: sealed.micAnchors,
+                sysAnchors: sealed.sysAnchors,
+                sysEffectiveSampleRate: sealed.sysEffectiveSampleRate
+            )
+        )
+    }
+
+    private func checkRetainedBatchAudio(sessionID: String) async -> (retainedBatchAudio: Bool, forcedRecoveryBatch: Bool) {
+        let retained = await coordinator.sessionRepository.hasRetainedBatchAudio(sessionID: sessionID)
+        return (retained, false)
+    }
+
+    private func handleSessionRecovery(
+        settings: AppSettings?,
+        index: SessionIndex,
+        sessionID: String,
+        utteranceCount: Int,
+        retainedBatchAudio: Bool,
+        forcedRecoveryBatch: Bool,
+        recordingHealthInput: RecordingHealthInput,
+        emptySessionClassification: EmptySessionDiagnosticClassification?
+    ) async -> (effectiveIndex: SessionIndex, shouldRunBatch: Bool) {
         var effectiveIndex = index
         var shouldRunBatchRetranscription = settings?.enableBatchRetranscription == true
-        var mergedSessionID: String?
+
+        let mergedSessionID = await handleGhostSessionReconciliation(
+            sessionID: sessionID,
+            utteranceCount: utteranceCount,
+            forcedRecoveryBatch: forcedRecoveryBatch,
+            retainedBatchAudio: retainedBatchAudio,
+            shouldRunBatch: &shouldRunBatchRetranscription,
+            effectiveIndex: &effectiveIndex
+        )
+
+        await recordEmptySessionDiagnosticsIfNeeded(
+            sessionID: sessionID,
+            utteranceCount: utteranceCount,
+            emptySessionClassification: emptySessionClassification,
+            retainedBatchAudio: retainedBatchAudio,
+            forcedRecoveryBatch: forcedRecoveryBatch,
+            shouldRunBatchRetranscription: shouldRunBatchRetranscription,
+            mergedSessionID: mergedSessionID,
+            recordingHealthInput: recordingHealthInput
+        )
+
+        return (effectiveIndex, shouldRunBatchRetranscription)
+    }
+
+    private func handleGhostSessionReconciliation(
+        sessionID: String,
+        utteranceCount: Int,
+        forcedRecoveryBatch: Bool,
+        retainedBatchAudio: Bool,
+        shouldRunBatch: inout Bool,
+        effectiveIndex: inout SessionIndex
+    ) async -> String? {
         if forcedRecoveryBatch {
             if retainedBatchAudio {
-                shouldRunBatchRetranscription = true
+                shouldRunBatch = true
                 DiagnosticsSupport.record(
                     category: "meeting",
                     message: "Escalating empty cloud session \(sessionID) to batch recovery"
@@ -860,66 +1036,102 @@ final class LiveSessionController {
                 )
             }
         }
+
         if utteranceCount == 0,
            let merged = await coordinator.sessionRepository.reconcileGhostSession(sessionID: sessionID) {
-            mergedSessionID = merged
             effectiveIndex = await coordinator.sessionRepository.loadSession(id: merged).index
-            shouldRunBatchRetranscription = false
+            shouldRunBatch = false
             DiagnosticsSupport.record(
                 category: "meeting",
                 message: "Collapsed empty duplicate session \(sessionID) into \(merged)"
             )
+            return merged
+        }
+
+        return nil
+    }
+
+    private func recordEmptySessionDiagnosticsIfNeeded(
+        sessionID: String,
+        utteranceCount: Int,
+        emptySessionClassification: EmptySessionDiagnosticClassification?,
+        retainedBatchAudio: Bool,
+        forcedRecoveryBatch: Bool,
+        shouldRunBatchRetranscription: Bool,
+        mergedSessionID: String?,
+        recordingHealthInput: RecordingHealthInput
+    ) async {
+        guard utteranceCount == 0, let classification = emptySessionClassification else {
+            pendingRecoveryDiagnostics = nil
+            coordinator.pendingRecoverySessionID = nil
+            return
         }
 
         let queuedRecoveryBatch = shouldRunBatchRetranscription && coordinator.batchAudioTranscriber != nil
-        if utteranceCount == 0, let classification = emptySessionClassification {
-            let recoveryResult: String
-            if mergedSessionID != nil {
-                recoveryResult = "collapsed_into_existing_session"
-            } else if queuedRecoveryBatch {
-                recoveryResult = "queued"
-            } else if forcedRecoveryBatch && !retainedBatchAudio {
-                recoveryResult = "unavailable_no_retained_audio"
-            } else {
-                recoveryResult = "not_attempted"
-            }
-            recordEmptySessionDiagnostics(
-                EmptySessionDiagnosticsEvent(
-                    event: "live_empty_session_finalized",
-                    sessionID: sessionID,
-                    transcriptionModel: recordingHealthInput.transcriptionModel.rawValue,
-                    elapsedSeconds: Int(recordingHealthInput.elapsed.rounded()),
-                    utteranceCount: recordingHealthInput.utteranceCount,
-                    peakAudioLevel: recordingHealthInput.peakAudioLevel,
-                    micCapturedFrames: recordingHealthInput.micHasCapturedFrames,
-                    systemCapturedFrames: recordingHealthInput.systemHasCapturedFrames,
-                    micCaptureError: recordingHealthInput.micCaptureError,
-                    classification: classification.rawValue,
-                    retainedRecoveryAudio: retainedBatchAudio,
-                    recoveryBatchAttempted: queuedRecoveryBatch,
-                    recoveryResult: recoveryResult,
-                    finalUtteranceCount: nil,
-                    mergedIntoSessionID: mergedSessionID,
-                    failureMessage: nil
-                )
+        let recoveryResult = determineRecoveryResult(
+            mergedSessionID: mergedSessionID,
+            queuedRecoveryBatch: queuedRecoveryBatch,
+            forcedRecoveryBatch: forcedRecoveryBatch,
+            retainedBatchAudio: retainedBatchAudio
+        )
+
+        recordEmptySessionDiagnostics(
+            EmptySessionDiagnosticsEvent(
+                event: "live_empty_session_finalized",
+                sessionID: sessionID,
+                transcriptionModel: recordingHealthInput.transcriptionModel.rawValue,
+                elapsedSeconds: Int(recordingHealthInput.elapsed.rounded()),
+                utteranceCount: recordingHealthInput.utteranceCount,
+                peakAudioLevel: recordingHealthInput.peakAudioLevel,
+                micCapturedFrames: recordingHealthInput.micHasCapturedFrames,
+                systemCapturedFrames: recordingHealthInput.systemHasCapturedFrames,
+                micCaptureError: recordingHealthInput.micCaptureError,
+                classification: classification.rawValue,
+                retainedRecoveryAudio: retainedBatchAudio,
+                recoveryBatchAttempted: queuedRecoveryBatch,
+                recoveryResult: recoveryResult,
+                finalUtteranceCount: nil,
+                mergedIntoSessionID: mergedSessionID,
+                failureMessage: nil
             )
-            if queuedRecoveryBatch {
-                pendingRecoveryDiagnostics = PendingRecoveryDiagnostics(
-                    sessionID: sessionID,
-                    transcriptionModel: recordingHealthInput.transcriptionModel.rawValue,
-                    classification: classification
-                )
-                coordinator.pendingRecoverySessionID = sessionID
-            } else {
-                pendingRecoveryDiagnostics = nil
-                coordinator.pendingRecoverySessionID = nil
-            }
+        )
+
+        if queuedRecoveryBatch {
+            pendingRecoveryDiagnostics = PendingRecoveryDiagnostics(
+                sessionID: sessionID,
+                transcriptionModel: recordingHealthInput.transcriptionModel.rawValue,
+                classification: classification
+            )
+            coordinator.pendingRecoverySessionID = sessionID
         } else {
             pendingRecoveryDiagnostics = nil
             coordinator.pendingRecoverySessionID = nil
         }
+    }
 
-        // 8. Update UI state + refresh history
+    private func determineRecoveryResult(
+        mergedSessionID: String?,
+        queuedRecoveryBatch: Bool,
+        forcedRecoveryBatch: Bool,
+        retainedBatchAudio: Bool
+    ) -> String {
+        if mergedSessionID != nil {
+            return "collapsed_into_existing_session"
+        } else if queuedRecoveryBatch {
+            return "queued"
+        } else if forcedRecoveryBatch && !retainedBatchAudio {
+            return "unavailable_no_retained_audio"
+        } else {
+            return "not_attempted"
+        }
+    }
+
+    private func updateFinalizationUIState(
+        effectiveIndex: SessionIndex,
+        retainedBatchAudio: Bool,
+        utteranceCount: Int,
+        shouldRunBatchRetranscription: Bool
+    ) async {
         coordinator.lastEndedSession = effectiveIndex
         set(\.lastEndedSessionCanRetranscribe, retainedBatchAudio)
         coordinator.sessionTemplateSnapshot = nil
@@ -929,29 +1141,36 @@ final class LiveSessionController {
             message: "Finalized session \(effectiveIndex.id) utterances=\(utteranceCount) batch=\(shouldRunBatchRetranscription ? "on" : "off")"
         )
         await coordinator.loadHistory()
+    }
 
-        // 9. Kick off batch transcription if enabled
-        if let settings, shouldRunBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
-            let batchSessionID = sessionID
-            let batchModel = settings.batchTranscriptionModel
-            let batchLocale = settings.locale
-            let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
-            let repo = coordinator.sessionRepository
-            let diarize = settings.enableDiarization
-            let diarizeVariant = settings.diarizationVariant
-            let modelStorage = settings.modelStorageURL
-            Task.detached { [batchAudioTranscriber] in
-                await batchAudioTranscriber.process(
-                    sessionID: batchSessionID,
-                    model: batchModel,
-                    locale: batchLocale,
-                    sessionRepository: repo,
-                    notesDirectory: notesDir,
-                    enableDiarization: diarize,
-                    diarizationVariant: diarizeVariant,
-                    modelStorageURL: modelStorage
-                )
-            }
+    private func kickoffBatchTranscriptionIfEnabled(
+        settings: AppSettings?,
+        shouldRunBatchRetranscription: Bool,
+        sessionID: String
+    ) async {
+        guard let settings, shouldRunBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber else {
+            return
+        }
+
+        let batchModel = settings.batchTranscriptionModel
+        let batchLocale = settings.locale
+        let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
+        let repo = coordinator.sessionRepository
+        let diarize = settings.enableDiarization
+        let diarizeVariant = settings.diarizationVariant
+        let modelStorage = settings.modelStorageURL
+
+        Task.detached { [batchAudioTranscriber] in
+            await batchAudioTranscriber.process(
+                sessionID: sessionID,
+                model: batchModel,
+                locale: batchLocale,
+                sessionRepository: repo,
+                notesDirectory: notesDir,
+                enableDiarization: diarize,
+                diarizationVariant: diarizeVariant,
+                modelStorageURL: modelStorage
+            )
         }
     }
 

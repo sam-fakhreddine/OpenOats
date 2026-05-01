@@ -370,16 +370,13 @@ final class TranscriptionEngine {
         liveCloudTranscriptionIsProcessing = false
         refreshModelAvailability()
 
+        // Handle scripted mode
         if case .scripted(let scriptedUtterances) = mode {
-            downloadConfirmed = false
-            assetStatus = "Transcribing (UI Test)"
-            isRunning = true
-            for utterance in scriptedUtterances {
-                transcriptStore.append(utterance)
-            }
+            await handleScriptedStart(scriptedUtterances: scriptedUtterances)
             return
         }
 
+        // Validate locale compatibility
         if let localeMismatchMessage = localeMismatchMessage(
             for: locale,
             transcriptionModel: transcriptionModel
@@ -406,92 +403,8 @@ final class TranscriptionEngine {
 
         isRunning = true
 
-        // 1. Load transcription models via backend protocol
-        let isDownloading = needsModelDownload
-        assetStatus = isDownloading
-            ? "Downloading \(transcriptionModel.displayName)..."
-            : "Loading \(transcriptionModel.displayName)..."
-        if isDownloading {
-            beginDownloadTracking(for: transcriptionModel)
-        }
-        Log.transcription.info("Loading transcription model \(transcriptionModel.rawValue, privacy: .public)")
-        do {
-            let vocab = settings.transcriptionCustomVocabulary
-            let apiKey = settings.cloudASRApiKey
-            let noFiller = settings.removeFillerWords
-            let mic: any TranscriptionBackend
-            if transcriptionModel.isCloud,
-               let preparedCloudStartBackend,
-               preparedCloudStartBackend.model == transcriptionModel {
-                mic = preparedCloudStartBackend.backend
-                self.preparedCloudStartBackend = nil
-            } else {
-                mic = transcriptionModel.makeBackend(
-                    customVocabulary: vocab,
-                    apiKey: apiKey,
-                    removeFillerWords: noFiller,
-                    modelStorageURL: settings.modelStorageURL
-                )
-                try await prepareBackend(mic)
-            }
-            self.micBackend = mic
-
-            // Parakeet needs a separate backend for system audio (mutable decoder state).
-            // Qwen3 is actor-based and thread-safe, so reuse the same instance.
-            if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
-                self.systemBackend = mic
-            } else {
-                let sys = transcriptionModel.makeBackend(
-                    customVocabulary: vocab,
-                    apiKey: apiKey,
-                    removeFillerWords: noFiller,
-                    modelStorageURL: settings.modelStorageURL
-                )
-                try await sys.prepare { _ in }
-                self.systemBackend = sys
-            }
-
-            assetStatus = "Loading VAD model..."
-            Log.transcription.info("Loading VAD model")
-            let vad: VadManager = FluidVadManager()
-            self.vadManager = vad
-
-            // Optionally load speaker diarization model
-            if settings.enableDiarization {
-                assetStatus = "Loading diarization model..."
-                Log.transcription.info("Loading LS-EEND diarization model")
-                let dm = DiarizationManager()
-                let variant = LSEENDVariant(rawValue: settings.diarizationVariant.rawValue) ?? .dihard3
-                try await dm.load(variant: variant)
-                self.diarizationManager = dm
-                Log.transcription.info("Diarization model loaded")
-            } else {
-                self.diarizationManager = nil
-            }
-
-            needsModelDownload = false
-            downloadConfirmed = false
-            clearDownloadTracking()
-            assetStatus = "Models ready"
-            Log.transcription.info("Transcription model loaded")
-        } catch {
-            let msg = "Failed to load models: \(error.localizedDescription)"
-            Log.transcription.error("Failed to load models: \(error, privacy: .public)")
-            lastError = msg
-            assetStatus = "Ready"
-            isRunning = false
-            clearDownloadTracking()
-            // Clear corrupt cache so the next attempt triggers a fresh download.
-            // Cloud models don't have local caches or download flows.
-            if !transcriptionModel.isCloud {
-                activeTranscriptionSession?.clearModelCache()
-                Log.transcription.info(
-                    "Cleared model cache for \(transcriptionModel.rawValue, privacy: .public)"
-                )
-                needsModelDownload = true
-            }
-            downloadConfirmed = false
-            activeTranscriptionSession = nil
+        // 1. Load transcription models and optional diarization
+        guard await loadTranscriptionModels(transcriptionModel: transcriptionModel) else {
             return
         }
 
@@ -500,7 +413,147 @@ final class TranscriptionEngine {
             return
         }
 
-        // 2. Start mic capture
+        // 2. Start mic capture with health check
+        await startMicCapture(
+            locale: locale,
+            vadManager: vadManager,
+            inputDeviceID: inputDeviceID
+        )
+
+        // 3. Start system audio capture
+        await startSystemAudioStream(locale: locale, vadManager: vadManager)
+
+        assetStatus = "Transcribing (\(micBackend?.displayName ?? transcriptionModel.displayName))"
+        Log.transcription.info("All transcription tasks started")
+
+        // Install CoreAudio listeners for live device routing changes
+        installDefaultDeviceListener()
+        installDefaultOutputDeviceListener()
+    }
+
+    // MARK: - Start Helpers (Extracted to reduce CCN)
+
+    private func handleScriptedStart(scriptedUtterances: [Utterance]) async {
+        downloadConfirmed = false
+        assetStatus = "Transcribing (UI Test)"
+        isRunning = true
+        for utterance in scriptedUtterances {
+            transcriptStore.append(utterance)
+        }
+    }
+
+    private func loadTranscriptionModels(transcriptionModel: TranscriptionModel) async -> Bool {
+        let isDownloading = needsModelDownload
+        assetStatus = isDownloading
+            ? "Downloading \(transcriptionModel.displayName)..."
+            : "Loading \(transcriptionModel.displayName)..."
+
+        if isDownloading {
+            beginDownloadTracking(for: transcriptionModel)
+        }
+
+        Log.transcription.info("Loading transcription model \(transcriptionModel.rawValue, privacy: .public)")
+
+        do {
+            try await initializeTranscriptionBackends(transcriptionModel: transcriptionModel)
+            try await initializeVADAndDiarization()
+
+            needsModelDownload = false
+            downloadConfirmed = false
+            clearDownloadTracking()
+            assetStatus = "Models ready"
+            Log.transcription.info("Transcription model loaded")
+            return true
+        } catch {
+            handleModelLoadError(error: error, transcriptionModel: transcriptionModel)
+            return false
+        }
+    }
+
+    private func initializeTranscriptionBackends(transcriptionModel: TranscriptionModel) async throws {
+        let vocab = settings.transcriptionCustomVocabulary
+        let apiKey = settings.cloudASRApiKey
+        let noFiller = settings.removeFillerWords
+
+        let mic: any TranscriptionBackend
+        if transcriptionModel.isCloud,
+           let preparedCloudStartBackend,
+           preparedCloudStartBackend.model == transcriptionModel {
+            mic = preparedCloudStartBackend.backend
+            self.preparedCloudStartBackend = nil
+        } else {
+            mic = transcriptionModel.makeBackend(
+                customVocabulary: vocab,
+                apiKey: apiKey,
+                removeFillerWords: noFiller,
+                modelStorageURL: settings.modelStorageURL
+            )
+            try await prepareBackend(mic)
+        }
+        self.micBackend = mic
+
+        // Parakeet needs a separate backend for system audio (mutable decoder state).
+        // Qwen3 is actor-based and thread-safe, so reuse the same instance.
+        if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
+            self.systemBackend = mic
+        } else {
+            let sys = transcriptionModel.makeBackend(
+                customVocabulary: vocab,
+                apiKey: apiKey,
+                removeFillerWords: noFiller,
+                modelStorageURL: settings.modelStorageURL
+            )
+            try await sys.prepare { _ in }
+            self.systemBackend = sys
+        }
+    }
+
+    private func initializeVADAndDiarization() async throws {
+        assetStatus = "Loading VAD model..."
+        Log.transcription.info("Loading VAD model")
+        let vad: VadManager = FluidVadManager()
+        self.vadManager = vad
+
+        // Optionally load speaker diarization model
+        if settings.enableDiarization {
+            assetStatus = "Loading diarization model..."
+            Log.transcription.info("Loading LS-EEND diarization model")
+            let dm = DiarizationManager()
+            let variant = LSEENDVariant(rawValue: settings.diarizationVariant.rawValue) ?? .dihard3
+            try await dm.load(variant: variant)
+            self.diarizationManager = dm
+            Log.transcription.info("Diarization model loaded")
+        } else {
+            self.diarizationManager = nil
+        }
+    }
+
+    private func handleModelLoadError(error: Error, transcriptionModel: TranscriptionModel) {
+        let msg = "Failed to load models: \(error.localizedDescription)"
+        Log.transcription.error("Failed to load models: \(error, privacy: .public)")
+        lastError = msg
+        assetStatus = "Ready"
+        isRunning = false
+        clearDownloadTracking()
+
+        // Clear corrupt cache so the next attempt triggers a fresh download.
+        // Cloud models don't have local caches or download flows.
+        if !transcriptionModel.isCloud {
+            activeTranscriptionSession?.clearModelCache()
+            Log.transcription.info(
+                "Cleared model cache for \(transcriptionModel.rawValue, privacy: .public)"
+            )
+            needsModelDownload = true
+        }
+        downloadConfirmed = false
+        activeTranscriptionSession = nil
+    }
+
+    private func startMicCapture(
+        locale: Locale,
+        vadManager: VadManager,
+        inputDeviceID: AudioDeviceID
+    ) async {
         userSelectedDeviceID = inputDeviceID
         guard let targetMicID = resolvedMicDeviceID(for: inputDeviceID) else {
             let msg = unavailableMicMessage(for: inputDeviceID)
@@ -512,21 +565,21 @@ final class TranscriptionEngine {
             return
         }
         currentMicDeviceID = targetMicID
+
         // AEC (voice processing) conflicts with system audio capture on macOS —
         // both cause CoreAudio aggregate-device reconfiguration that can stall the
         // mic stream. Since system audio capture is always active during recording,
         // AEC must be disabled to prevent capture failures.
-        let useAEC = false
         if settings.enableEchoCancellation {
             Log.transcription.info("AEC disabled - conflicts with system audio capture")
         }
 
-        Log.transcription.info("Starting mic capture, targetMicID=\(targetMicID, privacy: .public), aec=\(useAEC, privacy: .public)")
+        Log.transcription.info("Starting mic capture, targetMicID=\(targetMicID, privacy: .public), aec=false")
         startMicStream(
             locale: locale,
             vadManager: vadManager,
             deviceID: targetMicID,
-            echoCancellation: useAEC
+            echoCancellation: false
         )
 
         // Check for immediate mic capture failure
@@ -535,40 +588,24 @@ final class TranscriptionEngine {
             lastError = micError
         }
 
-        // Health check: if mic produces no audio within 5 seconds, retry once
-        // without AEC before surfacing the error.
+        // Health check: if mic produces no audio within 5 seconds, surface the error
+        scheduleMicHealthCheck(locale: locale, vadManager: vadManager, targetMicID: targetMicID)
+    }
+
+    private func scheduleMicHealthCheck(
+        locale: Locale,
+        vadManager: VadManager,
+        targetMicID: AudioDeviceID
+    ) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard let self, self.isRunning else { return }
+
             if !self.micCapture.hasCapturedFrames && self.micCapture.captureError == nil {
-                if useAEC {
-                    Log.transcription.error("No mic audio after 5s with AEC, retrying without")
-                    await self.micCapture.finishStream()
-                    await self.micTask?.value
-                    self.micTask = nil
-                    await self.micCapture.stop()
-                    self.startMicStream(
-                        locale: locale,
-                        vadManager: vadManager,
-                        deviceID: targetMicID,
-                        echoCancellation: false
-                    )
-                } else {
-                    Log.transcription.error("No mic audio after 5s")
-                    self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
-                }
+                Log.transcription.error("No mic audio after 5s")
+                self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
             }
         }
-
-        // 3. Start system audio capture
-        await startSystemAudioStream(locale: locale, vadManager: vadManager)
-
-        assetStatus = "Transcribing (\(micBackend?.displayName ?? transcriptionModel.displayName))"
-        Log.transcription.info("All transcription tasks started")
-
-        // Install CoreAudio listeners for live device routing changes
-        installDefaultDeviceListener()
-        installDefaultOutputDeviceListener()
     }
 
     /// Restart only the mic capture with a new device, keeping system audio and models intact.
