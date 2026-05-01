@@ -21,12 +21,15 @@ Define the Test-Driven Development (TDD) workflow with property-based testing fo
 - **Constraint**: No access to test implementation details
 - **Output**: Implementation + passing tests (GREEN)
 
-### Phase 3: Refactor Agent (Optional)
+### Phase 3: Refactor Agent (MANDATORY)
 **Agent C - Refactorer**
+- **Runs EEDOM analysis** on the implementation
+- Fixes all architectural issues detected (data races, complexity, etc.)
 - Improves code quality while maintaining passes
 - Performance optimizations
 - Documentation
-- **Output**: Refactored code + still passing tests
+- **Output**: Refactored code + passing tests + clean EEDOM report
+- **Gate**: No high-severity EEDOM findings allowed
 
 ## Property-Based Testing Strategy
 

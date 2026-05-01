@@ -58,11 +58,15 @@
 - Implements minimum code to make tests pass
 - **Output**: Implementation + passing tests
 
-### Phase 3: Refactor Agent (Optional)
-**Agent C**: Code quality improvements
+### Phase 3: Refactor Agent (MANDATORY)
+**Agent C**: Code quality improvements + EEDOM analysis
+- **Runs EEDOM analysis** on the implementation
+- Fixes all architectural issues detected (data races, complexity, etc.)
 - Refactors while maintaining test passes
 - Performance optimizations
 - Documentation
+- **Output**: Refactored code + passing tests + clean EEDOM report
+- **Gate**: No high-severity EEDOM findings allowed
 
 ---
 
