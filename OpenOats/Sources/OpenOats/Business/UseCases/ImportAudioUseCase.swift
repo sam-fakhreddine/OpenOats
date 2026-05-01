@@ -178,11 +178,9 @@ public actor ImportAudioUseCaseImpl: ImportAudioUseCase {
                     at: input.sourceURL,
                     language: language,
                     speakerDiarization: false,
-                    progressHandler: { [weak self] progress in
-                        Task {
-                            let adjustedProgress = 0.6 + (progress.percentage * 0.3)
-                            self?.reportProgress(adjustedProgress)
-                        }
+                    progressHandler: { progress in
+                        let adjustedProgress = 0.6 + (progress.percentage * 0.3)
+                        self.reportProgress(adjustedProgress)
                     }
                 )
                 
