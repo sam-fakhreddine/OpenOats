@@ -1,0 +1,28 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-slice",
+  "to_skill": "wfc-slice",
+  "step": "slice",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/slice-output.json",
+    "human": "TASK-013-acceptance-criteria.md"
+  },
+  "payload": {
+    "current_slice_id": "TASK-013",
+    "slice_status": "done",
+    "conversation_mode": "continue",
+    "rework_count": 0,
+    "review_mode": "holistic",
+    "next_slice_id": "TASK-014",
+    "stop_reason": null,
+    "compliance": {
+      "completeness_metrics": "defined",
+      "quality_metrics": "6 defined",
+      "ast_validation": "CI/CD ready",
+      "sign_off_process": "5 stages defined"
+    }
+  }
+}

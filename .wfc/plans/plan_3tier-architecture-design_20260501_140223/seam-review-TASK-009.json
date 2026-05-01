@@ -1,0 +1,29 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-slice",
+  "to_skill": "wfc-slice",
+  "step": "slice",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/slice-output.json",
+    "human": "TASK-009-data-flow-diagrams.md"
+  },
+  "payload": {
+    "current_slice_id": "TASK-009",
+    "slice_status": "done",
+    "conversation_mode": "continue",
+    "rework_count": 0,
+    "review_mode": "holistic",
+    "next_slice_id": "TASK-011",
+    "stop_reason": null,
+    "compliance": {
+      "mermaid_diagrams": "10 created",
+      "covers_architecture": true,
+      "covers_data_flows": true,
+      "covers_error_propagation": true,
+      "covers_concurrency": true
+    }
+  }
+}
