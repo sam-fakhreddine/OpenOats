@@ -113,12 +113,6 @@ final class TranscriptionEngine {
         set { withMutation(keyPath: \.liveCloudTranscriptIssue) { _liveCloudTranscriptIssue = newValue } }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _liveCloudTranscriptionIsProcessing = false
-    var liveCloudTranscriptionIsProcessing: Bool {
-        get { access(keyPath: \.liveCloudTranscriptionIsProcessing); return _liveCloudTranscriptionIsProcessing }
-        set { withMutation(keyPath: \.liveCloudTranscriptionIsProcessing) { _liveCloudTranscriptionIsProcessing = newValue } }
-    }
-
     @ObservationIgnored nonisolated(unsafe) private var _needsModelDownload = false
     var needsModelDownload: Bool {
         get { access(keyPath: \.needsModelDownload); return _needsModelDownload }
@@ -234,7 +228,7 @@ final class TranscriptionEngine {
         self.mode = mode
         switch mode {
         case .live:
-            self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel, modelStorageURL: settings.modelStorageURL)
         case .scripted:
             self.needsModelDownload = false
         }
@@ -243,7 +237,7 @@ final class TranscriptionEngine {
     func refreshModelAvailability() {
         switch mode {
         case .live:
-            needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel, modelStorageURL: settings.modelStorageURL)
         case .scripted:
             needsModelDownload = false
         }
@@ -254,7 +248,6 @@ final class TranscriptionEngine {
 
         lastError = nil
         liveCloudTranscriptIssue = nil
-        liveCloudTranscriptionIsProcessing = false
         preparedCloudStartBackend = nil
 
         if let inputIssue = validateConfiguredInputDevice() {
@@ -290,7 +283,8 @@ final class TranscriptionEngine {
             let backend = transcriptionModel.makeBackend(
                 customVocabulary: settings.transcriptionCustomVocabulary,
                 apiKey: apiKey,
-                removeFillerWords: settings.removeFillerWords
+                removeFillerWords: settings.removeFillerWords,
+                modelStorageURL: settings.modelStorageURL
             )
             try await prepareBackend(backend)
             preparedCloudStartBackend = PreparedCloudStartBackend(model: transcriptionModel, backend: backend)
@@ -329,12 +323,14 @@ final class TranscriptionEngine {
 
         lastError = nil
         liveCloudTranscriptIssue = nil
-        liveCloudTranscriptionIsProcessing = false
         assetStatus = "Downloading \(transcriptionModel.displayName)..."
         beginDownloadTracking(for: transcriptionModel)
 
         let vocab = settings.transcriptionCustomVocabulary
-        let backend = transcriptionModel.makeBackend(customVocabulary: vocab)
+        let backend = transcriptionModel.makeBackend(
+            customVocabulary: vocab,
+            modelStorageURL: settings.modelStorageURL
+        )
         do {
             try await prepareBackend(backend)
             needsModelDownload = false
@@ -348,7 +344,7 @@ final class TranscriptionEngine {
             lastError = "Failed to download: \(error.localizedDescription)"
             assetStatus = "Ready"
             clearDownloadTracking()
-            transcriptionModel.makeBackend().clearModelCache()
+            transcriptionModel.makeBackend(modelStorageURL: settings.modelStorageURL).clearModelCache()
             needsModelDownload = true
         }
     }
@@ -363,7 +359,6 @@ final class TranscriptionEngine {
         guard !isRunning, downloadProgress == nil else { return }
         lastError = nil
         liveCloudTranscriptIssue = nil
-        liveCloudTranscriptionIsProcessing = false
         refreshModelAvailability()
 
         if case .scripted(let scriptedUtterances) = mode {
@@ -425,7 +420,8 @@ final class TranscriptionEngine {
                 mic = transcriptionModel.makeBackend(
                     customVocabulary: vocab,
                     apiKey: apiKey,
-                    removeFillerWords: noFiller
+                    removeFillerWords: noFiller,
+                    modelStorageURL: settings.modelStorageURL
                 )
                 try await prepareBackend(mic)
             }
@@ -436,7 +432,12 @@ final class TranscriptionEngine {
             if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
                 self.systemBackend = mic
             } else {
-                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
+                let sys = transcriptionModel.makeBackend(
+                    customVocabulary: vocab,
+                    apiKey: apiKey,
+                    removeFillerWords: noFiller,
+                    modelStorageURL: settings.modelStorageURL
+                )
                 try await sys.prepare { _ in }
                 self.systemBackend = sys
             }
@@ -740,7 +741,6 @@ final class TranscriptionEngine {
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
         liveCloudTranscriptIssue = nil
-        liveCloudTranscriptionIsProcessing = false
         preparedCloudStartBackend = nil
         activeTranscriptionSession = nil
         isRunning = false
@@ -753,8 +753,6 @@ final class TranscriptionEngine {
             assetStatus = "Ready"
             transcriptStore.volatileYouText = ""
             transcriptStore.volatileThemText = ""
-            liveCloudTranscriptIssue = nil
-            liveCloudTranscriptionIsProcessing = false
             return
         }
 
@@ -781,7 +779,6 @@ final class TranscriptionEngine {
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
         liveCloudTranscriptIssue = nil
-        liveCloudTranscriptionIsProcessing = false
         preparedCloudStartBackend = nil
         activeTranscriptionSession = nil
         isRunning = false
@@ -1051,8 +1048,7 @@ final class TranscriptionEngine {
             skipPartials: model.isCloud,
             onPartial: onPartial,
             onFinal: onFinal,
-            onCloudSegmentStatus: makeCloudSegmentStatusHandler(for: model),
-            onCloudProcessingChanged: makeCloudProcessingChangedHandler(for: model)
+            onCloudSegmentStatus: makeCloudSegmentStatusHandler(for: model)
         )
     }
 
@@ -1063,17 +1059,6 @@ final class TranscriptionEngine {
         return { [weak self] status in
             Task { @MainActor [weak self] in
                 self?.handleCloudSegmentStatus(status)
-            }
-        }
-    }
-
-    private func makeCloudProcessingChangedHandler(
-        for model: TranscriptionModel
-    ) -> (@Sendable (Bool) -> Void)? {
-        guard model.isCloud else { return nil }
-        return { [weak self] isProcessing in
-            Task { @MainActor [weak self] in
-                self?.liveCloudTranscriptionIsProcessing = isProcessing
             }
         }
     }
@@ -1124,9 +1109,9 @@ final class TranscriptionEngine {
         return "No default microphone is currently available."
     }
 
-    private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
+    private static func modelNeedsDownload(_ model: TranscriptionModel, modelStorageURL: URL? = nil) -> Bool {
         guard !model.isCloud else { return false }
-        let backend = model.makeBackend()
+        let backend = model.makeBackend(modelStorageURL: modelStorageURL)
         if case .needsDownload = backend.checkStatus() {
             return true
         }

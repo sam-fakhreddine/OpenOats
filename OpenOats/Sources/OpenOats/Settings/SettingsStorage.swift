@@ -1,9 +1,11 @@
 import Foundation
 import Security
+import os.log
 
 struct AppSecretStore: Sendable {
     let loadValue: @Sendable (String) -> String?
     let saveValue: @Sendable (String, String) -> Void
+    let saveIfMissingValue: @Sendable (String, String) -> Bool
 
     func load(key: String) -> String? {
         loadValue(key)
@@ -12,17 +14,26 @@ struct AppSecretStore: Sendable {
     func save(key: String, value: String) {
         saveValue(key, value)
     }
+    
+    @discardableResult
+    func saveIfMissing(key: String, value: String) -> Bool {
+        saveIfMissingValue(key, value)
+    }
 
     static let keychain = AppSecretStore(
         loadValue: { KeychainHelper.load(key: $0) },
         saveValue: { key, value in
             KeychainHelper.save(key: key, value: value)
+        },
+        saveIfMissingValue: { key, value in
+            KeychainHelper.saveIfMissing(key: key, value: value)
         }
     )
 
     static let ephemeral = AppSecretStore(
         loadValue: { _ in nil },
-        saveValue: { _, _ in }
+        saveValue: { _, _ in },
+        saveIfMissingValue: { _, _ in true }
     )
 }
 
@@ -52,7 +63,10 @@ enum KeychainHelper {
     private static let service = "com.openoats.app"
 
     static func save(key: String, value: String) {
-        guard let data = value.data(using: .utf8) else { return }
+        guard let data = value.data(using: .utf8) else {
+            os_log("Keychain save failed: unable to encode value for key %{public}@", log: .default, type: .error, key)
+            return
+        }
         delete(key: key)
 
         let query: [String: Any] = [
@@ -62,11 +76,17 @@ enum KeychainHelper {
             kSecValueData as String: data,
         ]
 
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            os_log("Keychain save failed for key %{public}@: status %{public}d", log: .default, type: .error, key, status)
+        }
     }
 
-    static func saveIfMissing(key: String, value: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    static func saveIfMissing(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else {
+            os_log("Keychain saveIfMissing failed: unable to encode value for key %{public}@", log: .default, type: .error, key)
+            return false
+        }
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -75,7 +95,16 @@ enum KeychainHelper {
             kSecValueData as String: data,
         ]
 
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecSuccess {
+            return true
+        } else if status == errSecDuplicateItem {
+            // Item already exists - this is acceptable for "save if missing" semantics
+            return true
+        } else {
+            os_log("Keychain saveIfMissing failed for key %{public}@: status %{public}d", log: .default, type: .error, key, status)
+            return false
+        }
     }
 
     static func load(key: String) -> String? {
@@ -93,12 +122,20 @@ enum KeychainHelper {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(key: String) {
+    static func delete(key: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(query as CFDictionary)
+        
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            // Success or item didn't exist (idempotent)
+            return true
+        } else {
+            os_log("Keychain delete failed for key %{public}@: status %{public}d", log: .default, type: .error, key, status)
+            return false
+        }
     }
 }

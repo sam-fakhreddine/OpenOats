@@ -4,6 +4,26 @@ import Foundation
 import Observation
 import Security
 
+// MARK: - AppSettings Typealias
+
+/// **AppSettings is the view-facing name for SettingsStore.**
+///
+/// This typealias exists for backward compatibility with Views that reference `AppSettings`.
+/// SettingsStore is the canonical implementation with 80+ properties including
+/// mlx-audio settings, meeting detection features, and all app configuration.
+///
+/// **Usage Guide:**
+/// - Use `AppSettings` in Views and SwiftUI code (via `@Bindable var settings: AppSettings`)
+/// - Use `SettingsStore` in business logic, tests, and non-UI code
+/// - Both names refer to the same type - this is not a wrapper, just an alias
+///
+/// **Migration Path:**
+/// Existing code using `AppSettings` continues to work without changes.
+/// New code should prefer `SettingsStore` for clarity in non-UI contexts.
+typealias AppSettings = SettingsStore
+
+// MARK: - SettingsStore
+
 @Observable
 @MainActor
 final class SettingsStore {
@@ -11,13 +31,19 @@ final class SettingsStore {
     private let secretStore: AppSecretStore
     private static let enableLiveTranscriptCleanupLegacyKey = "enableTranscriptRefinement"
     private static let enableBatchRetranscriptionLegacyKey = "enableBatchRefinement"
+    
+    // Thread-safe lazy loading for secrets using NSLock
     @ObservationIgnored private var loadedSecretKeys: Set<String> = []
+    @ObservationIgnored private let secretLoadingLock = NSLock()
 
     private func loadSecretIfNeeded(
         key: String,
         currentValue: String,
         assign: (String) -> Void
     ) -> String {
+        secretLoadingLock.lock()
+        defer { secretLoadingLock.unlock() }
+        
         guard !loadedSecretKeys.contains(key) else { return currentValue }
         let value = secretStore.load(key: key) ?? ""
         loadedSecretKeys.insert(key)
@@ -26,11 +52,15 @@ final class SettingsStore {
     }
 
     private func markSecretLoaded(_ key: String) {
+        secretLoadingLock.lock()
+        defer { secretLoadingLock.unlock() }
         loadedSecretKeys.insert(key)
     }
 
     func isSecretLoaded(_ key: String) -> Bool {
-        loadedSecretKeys.contains(key)
+        secretLoadingLock.lock()
+        defer { secretLoadingLock.unlock() }
+        return loadedSecretKeys.contains(key)
     }
 
     // MARK: - AI Settings
@@ -369,8 +399,11 @@ final class SettingsStore {
         get { access(keyPath: \.sidecastPersonas); return _sidecastPersonas }
         set {
             withMutation(keyPath: \.sidecastPersonas) {
-                _sidecastPersonas = newValue
-                defaults.set(Self.encodePersonas(newValue), forKey: "sidecastPersonas")
+                // Only encode and write if value actually changed
+                let normalized = newValue
+                guard !_sidecastPersonas.elementsEqual(normalized, by: { $0.id == $1.id && $0.name == $1.name }) else { return }
+                _sidecastPersonas = normalized
+                defaults.set(Self.encodePersonas(normalized), forKey: "sidecastPersonas")
             }
         }
     }
@@ -889,8 +922,11 @@ final class SettingsStore {
         get { access(keyPath: \.notesFolders); return _notesFolders }
         set {
             withMutation(keyPath: \.notesFolders) {
-                _notesFolders = Self.normalizeNotesFolders(newValue)
-                defaults.set(Self.encodeNotesFolders(_notesFolders), forKey: "notesFolders")
+                let normalized = Self.normalizeNotesFolders(newValue)
+                // Only encode and write if value actually changed
+                guard _notesFolders != normalized else { return }
+                _notesFolders = normalized
+                defaults.set(Self.encodeNotesFolders(normalized), forKey: "notesFolders")
             }
         }
     }
@@ -900,8 +936,11 @@ final class SettingsStore {
         get { access(keyPath: \.meetingPrepNotesByKey); return _meetingPrepNotesByKey }
         set {
             withMutation(keyPath: \.meetingPrepNotesByKey) {
-                _meetingPrepNotesByKey = Self.normalizeMeetingPrepNotes(newValue)
-                defaults.set(Self.encodeMeetingPrepNotes(_meetingPrepNotesByKey), forKey: "meetingPrepNotesByKey")
+                let normalized = Self.normalizeMeetingPrepNotes(newValue)
+                // Only encode and write if value actually changed
+                guard _meetingPrepNotesByKey != normalized else { return }
+                _meetingPrepNotesByKey = normalized
+                defaults.set(Self.encodeMeetingPrepNotes(normalized), forKey: "meetingPrepNotesByKey")
             }
         }
     }
@@ -911,9 +950,12 @@ final class SettingsStore {
         get { access(keyPath: \.meetingHistoryAliasesByKey); return _meetingHistoryAliasesByKey }
         set {
             withMutation(keyPath: \.meetingHistoryAliasesByKey) {
-                _meetingHistoryAliasesByKey = Self.normalizeMeetingHistoryAliases(newValue)
+                let normalized = Self.normalizeMeetingHistoryAliases(newValue)
+                // Only encode and write if value actually changed
+                guard _meetingHistoryAliasesByKey != normalized else { return }
+                _meetingHistoryAliasesByKey = normalized
                 defaults.set(
-                    Self.encodeMeetingHistoryAliases(_meetingHistoryAliasesByKey),
+                    Self.encodeMeetingHistoryAliases(normalized),
                     forKey: "meetingHistoryAliasesByKey"
                 )
             }
@@ -925,9 +967,12 @@ final class SettingsStore {
         get { access(keyPath: \.meetingFamilyPreferencesByKey); return _meetingFamilyPreferencesByKey }
         set {
             withMutation(keyPath: \.meetingFamilyPreferencesByKey) {
-                _meetingFamilyPreferencesByKey = Self.normalizeMeetingFamilyPreferences(newValue)
+                let normalized = Self.normalizeMeetingFamilyPreferences(newValue)
+                // Only encode and write if value actually changed
+                guard _meetingFamilyPreferencesByKey != normalized else { return }
+                _meetingFamilyPreferencesByKey = normalized
                 defaults.set(
-                    Self.encodeMeetingFamilyPreferences(_meetingFamilyPreferencesByKey),
+                    Self.encodeMeetingFamilyPreferences(normalized),
                     forKey: "meetingFamilyPreferencesByKey"
                 )
             }
@@ -1104,6 +1149,30 @@ final class SettingsStore {
                 defaults.set(newValue, forKey: "hasSeenLaunchAtLoginSuggestion")
             }
         }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _modelStoragePath: String
+    var modelStoragePath: String {
+        get { access(keyPath: \.modelStoragePath); return _modelStoragePath }
+        set {
+            withMutation(keyPath: \.modelStoragePath) {
+                _modelStoragePath = newValue
+                defaults.set(newValue, forKey: "modelStoragePath")
+            }
+        }
+    }
+
+    /// Returns the effective model storage URL. If a custom path is set, uses that; otherwise uses default cache.
+    var modelStorageURL: URL {
+        if !_modelStoragePath.isEmpty,
+           FileManager.default.fileExists(atPath: _modelStoragePath) {
+            return URL(fileURLWithPath: _modelStoragePath)
+        }
+        // Default: ~/Library/Caches/huggingface/hub/mlx-audio
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("huggingface")
+            .appendingPathComponent("hub")
+            .appendingPathComponent("mlx-audio")
     }
 
     // MARK: - Initialization
@@ -1288,6 +1357,7 @@ final class SettingsStore {
         ) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
+        self._modelStoragePath = defaults.string(forKey: "modelStoragePath") ?? ""
 
         // Ensure notes folder exists
         try? FileManager.default.createDirectory(
@@ -1492,6 +1562,16 @@ final class SettingsStore {
     }
 }
 
+// MARK: - Convenience Initializer
+
+extension SettingsStore {
+    /// Convenience initializer for view compatibility
+    /// Uses live storage (UserDefaults + Keychain)
+    convenience init() {
+        self.init(storage: .live())
+    }
+}
+
 // MARK: - Migration
 
 extension SettingsStore {
@@ -1651,6 +1731,3 @@ extension SettingsStore {
         return String(data: data, encoding: .utf8)
     }
 }
-
-/// Backward-compatible alias so existing code continues to compile during migration.
-typealias AppSettings = SettingsStore

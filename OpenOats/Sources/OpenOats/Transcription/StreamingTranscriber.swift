@@ -40,7 +40,6 @@ final class StreamingTranscriber: @unchecked Sendable {
     private let onPartial: @Sendable (String) -> Void
     private let onFinal: @Sendable (String) -> Void
     private let onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)?
-    private let onCloudProcessingChanged: (@Sendable (Bool) -> Void)?
 
     /// Resampler from source format to 16kHz mono Float32.
     private var converter: AVAudioConverter?
@@ -87,8 +86,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         skipPartials: Bool = false,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void,
-        onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)? = nil,
-        onCloudProcessingChanged: (@Sendable (Bool) -> Void)? = nil
+        onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)? = nil
     ) {
         self.backend = backend
         self.locale = locale
@@ -101,7 +99,6 @@ final class StreamingTranscriber: @unchecked Sendable {
         self.onPartial = onPartial
         self.onFinal = onFinal
         self.onCloudSegmentStatus = onCloudSegmentStatus
-        self.onCloudProcessingChanged = onCloudProcessingChanged
     }
 
     /// Silero VAD expects chunks of 4096 samples (256ms at 16kHz).
@@ -116,7 +113,6 @@ final class StreamingTranscriber: @unchecked Sendable {
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
-        let segmentQueue = makeSegmentQueueIfNeeded()
         var vadState = await vadManager.makeStreamState()
         var speechSamples: [Float] = []
         var vadBuffer: [Float] = []
@@ -203,7 +199,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                             let segment = speechSamples
                             speechSamples.removeAll(keepingCapacity: true)
                             onPartial("")  // Clear partial display
-                            await submitSegment(segment, using: segmentQueue)
+                            await transcribeSegment(segment)
                         } else {
                             speechSamples.removeAll(keepingCapacity: true)
                             onPartial("")  // Clear partial display
@@ -236,7 +232,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                             let segment = speechSamples
                             speechSamples.removeAll(keepingCapacity: true)
                             onPartial("")  // Clear partial display
-                            await submitSegment(segment, using: segmentQueue)
+                            await transcribeSegment(segment)
                         }
                     }
                 } catch {
@@ -247,40 +243,12 @@ final class StreamingTranscriber: @unchecked Sendable {
 
         if speechSamples.count > Self.minimumSpeechSamples {
             onPartial("")  // Clear partial display
-            await submitSegment(speechSamples, using: segmentQueue)
-        }
-
-        if let segmentQueue {
-            if Task.isCancelled {
-                await segmentQueue.cancel()
-            } else {
-                await segmentQueue.finish()
-            }
+            await transcribeSegment(speechSamples)
         }
     }
 
     /// Trailing words from the last transcribed segment, used to prime the next segment's decoder.
     private var previousContext: String?
-
-    private func makeSegmentQueueIfNeeded() -> StreamingTranscriptionSegmentQueue? {
-        guard skipPartials else { return nil }
-        return StreamingTranscriptionSegmentQueue(
-            onProcessingChanged: onCloudProcessingChanged
-        ) { [self] segment in
-            await transcribeSegment(segment)
-        }
-    }
-
-    private func submitSegment(
-        _ samples: [Float],
-        using queue: StreamingTranscriptionSegmentQueue?
-    ) async {
-        if let queue {
-            await queue.enqueue(samples)
-        } else {
-            await transcribeSegment(samples)
-        }
-    }
 
     private func transcribeSegment(_ samples: [Float]) async {
         let startedAt = Date()

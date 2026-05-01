@@ -853,7 +853,8 @@ final class NotesController {
                 sessionRepository: coordinator.sessionRepository,
                 notesDirectory: notesDirectory,
                 enableDiarization: settings.enableDiarization,
-                diarizationVariant: settings.diarizationVariant
+                diarizationVariant: settings.diarizationVariant,
+                modelStorageURL: settings.modelStorageURL
             )
             pendingAutoNotes = (sessionID: sessionID, settings: settings)
             await reloadSessionAfterTranscriptMutation(sessionID: sessionID)

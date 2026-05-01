@@ -17,11 +17,6 @@ struct CloudTranscriptCopy {
         return "Waiting for transcript chunk…"
     }
 
-    static let processingChunk = Presentation(
-        title: "Processing transcript chunk…",
-        detail: "Cloud transcription is working on the latest chunk."
-    )
-
     static let emptyChunk = Presentation(
         title: "Latest chunk returned no text",
         detail: "OpenOats is still listening for the next chunk."

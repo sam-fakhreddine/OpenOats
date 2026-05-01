@@ -939,6 +939,7 @@ final class LiveSessionController {
             let repo = coordinator.sessionRepository
             let diarize = settings.enableDiarization
             let diarizeVariant = settings.diarizationVariant
+            let modelStorage = settings.modelStorageURL
             Task.detached { [batchAudioTranscriber] in
                 await batchAudioTranscriber.process(
                     sessionID: batchSessionID,
@@ -947,7 +948,8 @@ final class LiveSessionController {
                     sessionRepository: repo,
                     notesDirectory: notesDir,
                     enableDiarization: diarize,
-                    diarizationVariant: diarizeVariant
+                    diarizationVariant: diarizeVariant,
+                    modelStorageURL: modelStorage
                 )
             }
         }
@@ -1065,28 +1067,20 @@ final class LiveSessionController {
 
     static func liveTranscriptNotice(
         for model: TranscriptionModel,
-        issue: CloudTranscriptCopy.Presentation? = nil,
-        isProcessing: Bool = false
+        issue: CloudTranscriptCopy.Presentation? = nil
     ) -> String? {
         if let issue {
             return issue.title
-        }
-        if isProcessing {
-            return CloudTranscriptCopy.processingChunk.title
         }
         return CloudTranscriptCopy.steadyStateNotice(for: model)
     }
 
     static func liveTranscriptEmptyStateMessage(
         for model: TranscriptionModel,
-        issue: CloudTranscriptCopy.Presentation? = nil,
-        isProcessing: Bool = false
+        issue: CloudTranscriptCopy.Presentation? = nil
     ) -> String? {
         if let issue {
             return issue.detail
-        }
-        if isProcessing {
-            return CloudTranscriptCopy.processingChunk.detail
         }
         return CloudTranscriptCopy.waitingMessage(for: model)
     }
@@ -1178,7 +1172,6 @@ final class LiveSessionController {
         let engineIsRunning = coordinator.transcriptionEngine?.isRunning ?? false
         let activeTranscriptionModel = coordinator.transcriptionEngine?.currentTranscriptionModel() ?? settings.transcriptionModel
         let liveCloudIssue = coordinator.transcriptionEngine?.liveCloudTranscriptIssue
-        let liveCloudIsProcessing = coordinator.transcriptionEngine?.liveCloudTranscriptionIsProcessing ?? false
         let isRunning: Bool
         let matchedCalendarEvent: CalendarEvent?
         switch lifecycleState {
@@ -1224,8 +1217,8 @@ final class LiveSessionController {
         set(\.transcriptionPrompt, settings.transcriptionModel.downloadPrompt)
         set(\.modelDisplayName, activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw)
         set(\.showLiveTranscript, settings.showLiveTranscript)
-        set(\.liveTranscriptNotice, isRunning ? Self.liveTranscriptNotice(for: activeTranscriptionModel, issue: liveCloudIssue, isProcessing: liveCloudIsProcessing) : nil)
-        set(\.liveTranscriptEmptyStateMessage, isRunning ? Self.liveTranscriptEmptyStateMessage(for: activeTranscriptionModel, issue: liveCloudIssue, isProcessing: liveCloudIsProcessing) : nil)
+        set(\.liveTranscriptNotice, isRunning ? Self.liveTranscriptNotice(for: activeTranscriptionModel, issue: liveCloudIssue) : nil)
+        set(\.liveTranscriptEmptyStateMessage, isRunning ? Self.liveTranscriptEmptyStateMessage(for: activeTranscriptionModel, issue: liveCloudIssue) : nil)
         set(\.isMicMuted, coordinator.transcriptionEngine?.isMicMuted ?? false)
         set(\.isRecordingPaused, coordinator.transcriptionEngine?.isRecordingPaused ?? false)
         // scratchpadText is managed by updateScratchpad(), not refreshed from coordinator

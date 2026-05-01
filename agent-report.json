@@ -1,0 +1,53 @@
+{
+  "task_id": "implement-base-branch-fixes",
+  "status": "success",
+  "files_changed": [
+    "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
+    "OpenOats/Sources/OpenOats/Settings/AppSettings.swift",
+    "OpenOats/Sources/OpenOats/Settings/AppSecretStore.swift",
+    "OpenOats/Sources/OpenOats/Settings/CalendarEvent.swift",
+    "OpenOats/Sources/OpenOats/Settings/SidecastPersona.swift",
+    "OpenOats/Sources/OpenOats/Transcription/ParakeetBackend.swift",
+    "OpenOats/Sources/OpenOats/Transcription/OpenOatsLocalModelStore.swift"
+  ],
+  "tests_added": 0,
+  "tests_passed": 0,
+  "summary": "Successfully implemented base branch compilation fixes per ADR-001. Key changes: (1) Added typealias AppSettings = SettingsStore to unify settings types, (2) Added convenience init() to SettingsStore for view compatibility, (3) Removed duplicate type definitions (AppSecretStore, CalendarEvent, SidecastPersona) that were shadowing canonical implementations, (4) Fixed MLX-specific issues: updated ParakeetBackend to use new transcribe() API with decoderState parameter, added missing .tdtJa case to all switch statements in OpenOatsLocalModelStore, fixed Repo.parakeet -> Repo.parakeetV3 reference. Build completes successfully with zero errors.",
+  "decisions": [
+    {
+      "id": "ADR-001",
+      "title": "Consolidate AppSettings and SettingsStore via Typealias",
+      "rationale": "SettingsStore has comprehensive @Observable implementation with 80+ properties including all mlx-audio and meeting detection features. Views use AppSettings. Typealias unifies types while preserving all functionality.",
+      "implementation": "typealias AppSettings = SettingsStore"
+    },
+    {
+      "id": "WAVE-1-REVISED",
+      "title": "Remove Duplicate Types Instead of Restore",
+      "rationale": "AppSecretStore, CalendarEvent, and SidecastPersona already existed in SettingsStorage.swift, MeetingTypes.swift, and SidecastModels.swift respectively. The 'restore' task was based on incorrect assumption that these types were missing. Removed duplicate files from Settings/ folder.",
+      "files_removed": [
+        "OpenOats/Sources/OpenOats/Settings/AppSecretStore.swift",
+        "OpenOats/Sources/OpenOats/Settings/CalendarEvent.swift",
+        "OpenOats/Sources/OpenOats/Settings/SidecastPersona.swift"
+      ]
+    },
+    {
+      "id": "WAVE-3-MLX",
+      "title": "Fix MLX-Audio API Compatibility",
+      "rationale": "FluidAudio library updated transcribe() API to require decoderState parameter. Added TdtDecoderState property to ParakeetBackend, initialized in prepare() with await asr.decoderLayerCount. Added missing .tdtJa case to exhaustive switch statements.",
+      "changes": [
+        "ParakeetBackend: Added decoderState property, updated transcribe() to use new API",
+        "OpenOatsLocalModelStore: Added .tdtJa case to parakeetCurrentRelativePath(), parakeetLegacyRelativePath(), stableName()",
+        "Fixed Repo.parakeet -> Repo.parakeetV3 reference"
+      ]
+    },
+    {
+      "id": "WAVE-2-CONVENIENCE",
+      "title": "Add Convenience Initializer for View Compatibility",
+      "rationale": "SettingsStore requires init(storage:) but Views expect init(). Added convenience init() that calls self.init(storage: .live()).",
+      "implementation": "extension SettingsStore { convenience init() { self.init(storage: .live()) } }"
+    }
+  ],
+  "build_status": "success",
+  "compilation_errors": 0,
+  "mlx_verification": "ParakeetBackend compiles with new decoderState API, all AsrModelVersion cases handled including .tdtJa"
+}

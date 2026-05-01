@@ -209,11 +209,13 @@ enum OpenOatsLocalModelStore {
         case .v2:
             return Repo.parakeetV2.folderName
         case .v3:
-            return Repo.parakeet.folderName
+            return Repo.parakeetV3.folderName
         case .tdtCtc110m:
             return Repo.parakeetTdtCtc110m.folderName
         case .ctcZhCn:
             return Repo.parakeetCtcZhCn.folderName
+        case .tdtJa:
+            return Repo.parakeetJa.folderName
         }
     }
 
@@ -222,11 +224,13 @@ enum OpenOatsLocalModelStore {
         case .v2:
             return Repo.parakeetV2.name
         case .v3:
-            return Repo.parakeet.name
+            return Repo.parakeetV3.name
         case .tdtCtc110m:
             return Repo.parakeetTdtCtc110m.name
         case .ctcZhCn:
             return Repo.parakeetCtcZhCn.name
+        case .tdtJa:
+            return Repo.parakeetJa.name
         }
     }
 
@@ -248,6 +252,8 @@ enum OpenOatsLocalModelStore {
             return "parakeet-tdt-ctc-110m"
         case .ctcZhCn:
             return "parakeet-ctc-zh-cn"
+        case .tdtJa:
+            return "parakeet-tdt-ja"
         }
     }
 }

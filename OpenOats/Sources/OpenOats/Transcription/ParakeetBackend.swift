@@ -7,6 +7,7 @@ final class ParakeetBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName: String
     private let version: AsrModelVersion
     private var asrManager: AsrManager?
+    private var decoderState: TdtDecoderState?
 
     init(version: AsrModelVersion, customVocabulary: String = "") {
         self.version = version
@@ -41,13 +42,24 @@ final class ParakeetBackend: TranscriptionBackend, @unchecked Sendable {
         let asr = AsrManager(config: .default)
         try await asr.loadModels(models)
         self.asrManager = asr
+        
+        // Validate decoder layer count before creating state
+        let layerCount = await asr.decoderLayerCount
+        guard layerCount > 0 else {
+            throw TranscriptionBackendError.preparationFailed("Invalid decoder configuration: layer count is \(layerCount)")
+        }
+        self.decoderState = TdtDecoderState.make(decoderLayers: layerCount)
     }
 
     func transcribe(_ samples: [Float], locale: Locale, previousContext: String? = nil) async throws -> String {
-        guard let asrManager else {
+        guard let asrManager, var decoderState else {
             throw TranscriptionBackendError.notPrepared
         }
-        let result = try await asrManager.transcribe(samples)
-        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Convert locale identifier (e.g., "en-US") to language code (e.g., "en")
+        let languageCode = locale.identifier.split(separator: "-").first.map(String.init) ?? "en"
+        let language = Language(rawValue: languageCode)
+        let result = try await asrManager.transcribe(samples, decoderState: &decoderState, language: language)
+        self.decoderState = decoderState
+        return result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
 }

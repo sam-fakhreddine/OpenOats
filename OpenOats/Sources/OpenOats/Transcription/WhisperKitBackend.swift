@@ -6,9 +6,11 @@ final class WhisperKitBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName: String
     private let variant: WhisperKitManager.Variant
     private var whisperManager: WhisperKitManager?
+    private let customModelStorageURL: URL?
 
-    init(variant: WhisperKitManager.Variant) {
+    init(variant: WhisperKitManager.Variant, modelStorageURL: URL? = nil) {
         self.variant = variant
+        self.customModelStorageURL = modelStorageURL
         switch variant {
         case .base: self.displayName = "Whisper Base"
         case .small: self.displayName = "Whisper Small"

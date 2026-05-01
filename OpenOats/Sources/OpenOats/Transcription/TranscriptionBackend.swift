@@ -51,4 +51,5 @@ extension TranscriptionBackend {
 
 enum TranscriptionBackendError: Error {
     case notPrepared
+    case preparationFailed(String)
 }

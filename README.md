@@ -214,7 +214,31 @@ Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE
 OpenOats/             SwiftUI app (Swift Package)
 scripts/              Build, sign, and package scripts
 assets/               Screenshot and app icon source
+docs/                 Documentation (ADR, specs, developer guide)
 ```
+
+## Developer Notes
+
+### Swift 6 @Observable Migration
+
+OpenOats uses **Swift 6's native `@Observable` framework** (not `ObservableObject`). The settings system has been consolidated:
+
+- `AppSettings` is now a `typealias` for `SettingsStore`
+- Both names refer to the same underlying type
+- Uses `access()`/`withMutation()` Observation pattern
+- All properties from both legacy classes unified
+
+See [Developer Guide](docs/DEVELOPER-GUIDE.md) for:
+- Migration instructions for existing code
+- How to add new observable properties
+- Testing with mock settings
+- Common issues and solutions
+
+### Build Requirements
+
+- Apple Silicon Mac, macOS 15+
+- Xcode 26 / Swift 6.2
+- See [CHANGELOG](CHANGELOG.md) for breaking changes
 
 ## License
 

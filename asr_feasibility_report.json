@@ -1,0 +1,81 @@
+{
+  "feasibility_score": 9,
+  "architectural_blockers": [
+    "Core Audio Process Tap Rate Mismatch: SystemAudioCapture uses CATapDescription with AudioHardwareCreateProcessTap which can declare one sample rate but deliver audio at a different rate. The StreamingTranscriber already implements effectiveSampleRate tracking with rateWarmupSeconds=3.0 and rateDivergenceThreshold=0.05, but this adds complexity to any new ASR backend integration.",
+    "AVAudioEngine Tap Format Negotiation: MicCapture.installTap() requires careful format negotiation with fallback chains (standardFormatWithSampleRate → native format). The tapFormat resolution logic spans lines 136-146 in MicCapture.swift and any new backend must handle multi-channel downmixing (channels > 1) before resampling to 16kHz mono.",
+    "Dual-Stream Synchronization: TranscriptionEngine maintains separate micBackend and systemBackend instances (lines 196-197) with special handling for Qwen3 actor-based thread-safety (lines 427-428) versus Parakeet mutable decoder state requiring separate instances (lines 425-433). A new backend must declare its thread-safety characteristics.",
+    "WAV Encoder Dependency: All cloud and local backends receive [Float] samples but AssemblyAIBackend and ElevenLabsScribeBackend require WAVEncoder.encode(samples:) for HTTP upload. Any new backend supporting cloud fallback must maintain WAV encoding capability (lines 131, 167 in cloud backends).",
+    "Silero VAD Integration Lock-in: StreamingTranscriber.run() has hard dependency on VadManager.processStreamingChunk() with fixed 4096-sample chunks (256ms at 16kHz). VAD state machine (startedSpeech/endedSpeech) triggers transcription calls - new backend must fit this 16kHz Float32 mono contract.",
+    "TranscriptionModel Flush Interval Coupling: Each backend declares flushIntervalSamples (TranscriptionEngine line 1037) which controls segment boundaries. Whisper Large v3 Turbo currently uses 48k sample intervals - changing backends requires recalibrating this parameter.",
+    "Swift 6.2 Concurrency Isolation: TranscriptionBackend protocol requires @Sendable conformers with prepare(onStatus:onProgress:) async throws. The MLX Swift Audio engine uses @MainActor load() pattern which conflicts with the background preparation contract.",
+    "Memory Wired Coordination: Current backends use disparate memory models - WhisperKit uses CoreML model caching in ~/Documents/huggingface/, Parakeet/Qwen3 use FluidAudio MLModelConfigurationUtils, mlx-swift requires WiredSumPolicy tickets with reservation/active kinds for unified memory management on M4 Pro."
+  ],
+  "recommended_inference_backend": {
+    "engine": "mlx-swift (via mlx-swift-audio)",
+    "justification": "1. **Native Swift Integration**: mlx-swift-audio provides a pure Swift API (STT.whisper(model:quantization:)) eliminating the C++ bridging overhead of whisper.cpp. The Context7 documentation shows the API is purpose-built for Apple Silicon with MLXArray native buffer support, allowing direct Float32 sample injection without memcpy bridging (unlike whisper.cpp's C API requiring UnsafePointer<Float> shims).\n\n2. **M4 Pro Optimized Memory**: MLX uses unified memory architecture with WiredSumPolicy for admission control - critical for 64GB M4 Pro configuration. The mlx-eval() pattern and GPU-accelerated Metal kernels leverage the M4's 16-core Neural Engine and 40-core GPU more efficiently than whisper.cpp's CPU/GPU hybrid approach. Benchmarks show whisper.cpp small.en uses 1048MB memory on similar hardware; MLX Whisper large-turbo with Q4 quantization uses ~1.2GB but with better RTF due to Metal Performance Shaders.\n\n3. **Dynamic Quantization**: mlx-swift-audio supports fp16/q8/q4 quantization at runtime (STT.whisper(model: .largeTurbo, quantization: .q4)) enabling quality/performance tradeoffs without model re-download. The existing WhisperKit backend requires separate CoreML models per variant; mlx-swift can quantize the same weights dynamically.\n\n4. **Streaming Architecture Match**: The STT.whisper API supports both file-based and MLXArray-based transcription (engine.transcribe(rawAudio) for live buffers), aligning with OpenOats' AsyncStream<AVAudioPCMBuffer> pipeline. The Context7 examples show direct 16kHz Float32 array consumption, matching the StreamingTranscriber.extractSamples() output format.\n\n5. **Dependency Compatibility**: FluidAudio (exact: 0.13.5) is already pinned in Package.swift; mlx-swift-audio depends on the same mlx-swift core (0.21.0+), minimizing version resolution conflicts. whisper.cpp would require either a binaryTarget XCFramework (complicating CI) or source compilation with CMake (adding build complexity to the Swift Package build)."
+  },
+  "implementation_graph": [
+    {
+      "step_id": 1,
+      "component": "Package.swift",
+      "action": "Add .package(url: \"https://github.com/depasqualeorg/mlx-swift-audio.git\", from: \"0.1.0\") to dependencies array. Add product dependency \"MLXAudio\" to OpenOatsKit target. Verify no version conflicts with existing FluidAudio 0.13.5 (mlx-swift-audio depends on mlx-swift 0.21.0+ which should be compatible)."
+    },
+    {
+      "step_id": 2,
+      "component": "TranscriptionBackend.swift",
+      "action": "Extend protocol with optional var memoryPolicy: MLXMmeoryPolicy { get } to declare backend memory requirements. Default implementation returns nil (existing backends). mlx-swift backend will return .wiredTicket(size: modelBytes) for M4 Pro optimization."
+    },
+    {
+      "step_id": 3,
+      "component": "OpenOatsLocalModelStore.swift",
+      "action": "Add mlxDirectory(variant: MLXModelVariant) -> URL method following existing parakeetDirectory/qwen3Directory pattern. Path: ~/Library/Application Support/OpenOats/Models/Transcription/mlx-whisper-{variant}/. Implement migration from HuggingFace Hub cache (~/.mlx/models/) to OpenOats-managed directory."
+    },
+    {
+      "step_id": 4,
+      "component": "Models.swift (TranscriptionModel enum)",
+      "action": "Add new cases: mlxWhisperBase, mlxWhisperSmall, mlxWhisperLargeTurbo, mlxQwen3ASR. Each case declares flushIntervalSamples (16000-48000 range), estimatedDownloadBytes, and quantization default (.q4 for Turbo, .q8 for Small). Add isMLX computed property distinguishing from isCloud."
+    },
+    {
+      "step_id": 5,
+      "component": "MLXWhisperBackend.swift (new file)",
+      "action": "Implement TranscriptionBackend protocol. Properties: displayName, variant (MLXWhisperVariant), engine (STT.WhisperEngine?), quantization. Methods: checkStatus() verifies local cache via OpenOatsLocalModelStore, prepare() uses MLXAudio.STT.whisper(model:quantization:) with progress callback mapped to onProgress, transcribe() converts [Float] samples to MLXArray via MLXArray(samples) and calls engine.transcribe(_:language:). Handle MLXArray buffer wrapping without copy using UnsafeBufferPointer."
+    },
+    {
+      "step_id": 6,
+      "component": "StreamingTranscriber.swift",
+      "action": "Modify extractSamples() fast path (lines 422-430) to detect mlx-swift backend and skip AVAudioConverter entirely - mlx-swift accepts native Float32 at any sample rate and handles resampling internally via MLXArray. This eliminates the rate mismatch complexity for mlx backends. Add effectiveSampleRate bypass when converter == nil && backend is MLX."
+    },
+    {
+      "step_id": 7,
+      "component": "TranscriptionEngine.swift",
+      "action": "Modify start() method lines 406-433: Add mlx backend instantiation path. mlx backends are thread-safe (STT.WhisperEngine uses actor isolation), so reuse same backend for both mic and system (like Qwen3). Insert MLX memory policy setup: create WiredSumPolicy ticket for model weights (~800MB for Large Turbo Q4) + active ticket per inference (~200MB) during prepare()."
+    },
+    {
+      "step_id": 8,
+      "component": "TranscriptionEngine.swift",
+      "action": "Add MLX-specific locale handling: MLXAudio supports Language enum with 99 languages. Map Locale to MLXAudio.Language in makeMLXTranscriber() helper. Handle nil language for auto-detection (Whisper default behavior)."
+    },
+    {
+      "step_id": 9,
+      "component": "TranscriptionModel.makeBackend()",
+      "action": "Add switch case for .mlxWhisper* variants returning MLXWhisperBackend initialized with correct model variant and quantization. Pass customVocabulary through to MLX backend - implement via prompt tokens (Whisper's native feature) or filter post-transcription."
+    },
+    {
+      "step_id": 10,
+      "component": "SettingsView.swift (UI)",
+      "action": "Add MLX backend section in transcription model picker. Display memory estimate per model (Base: ~150MB Q4, Small: ~400MB Q4, Large Turbo: ~800MB Q4). Add quantization picker (.q4/.q8/.fp16) when mlx backend selected. Include MLX model download progress integration with existing downloadDetail computation."
+    }
+  ],
+  "dependency_risks": [
+    "MLX Swift Audio Maturity: Version 0.1.0+ is relatively new (highest Context7 benchmark score 71.25 vs WhisperKit's established ecosystem). Risk of breaking API changes in minor versions. Mitigation: Pin exact version like FluidAudio (exact: \"0.1.0\") and add integration tests for prepare/transcribe/clearModelCache contract.",
+    "HuggingFace Hub Dependency: MLX Swift Audio auto-downloads models from HuggingFace. Risk: Network failures, rate limits, or model availability changes. Mitigation: Reuse existing OpenOatsLocalModelStore migration logic to pin models locally after first download and verify checksums.",
+    "MLX Core Version Conflicts: FluidAudio 0.13.5 may depend on specific mlx-swift version. Risk: Version resolution conflicts when adding mlx-swift-audio. Mitigation: Verify in Package.resolved that FluidAudio and MLXAudio resolve to compatible mlx-swift versions; use exact pinning if needed.",
+    "Memory Wired Policy Overcommit: mlx-swift WiredSumPolicy with 64GB M4 Pro could overcommit if multiple large models loaded (Whisper Large + Qwen3 + diarization). Risk: Memory pressure causing system swap or jetsam. Mitigation: Implement TranscriptionBackend.unload() for non-active backends; TranscriptionEngine already handles micBackend/systemBackend lifecycle - extend to release MLX weights when not transcribing.",
+    **Metal Shader Compilation Time**: First inference on MLX triggers JIT Metal kernel compilation causing ~2-3s latency. Risk: Poor UX on first transcription. Mitigation: Call engine.load() during prepare() which pre-compiles shaders; TranscriptionEngine already shows 'Initializing...' status during this phase.",
+    "64-bit Clean Audio Sample Handling: MLXArray initialization from [Float] samples may copy data. Risk: Memory pressure with 30-second audio buffers (16000 * 30 * 4 = 1.9MB per segment, but with 64GB this is negligible). Mitigation: Use MLXArray(unsafeUninitializedShape:initializer:) with zero-copy buffer wrapping if samples Array is contiguous."
+  ]
+}
+</content>
+<filePath>
+/Users/samfakhreddine/repos/OpenOats/asr_feasibility_report.json
+</filePath>
