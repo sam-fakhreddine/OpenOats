@@ -1,0 +1,36 @@
+{
+  "docs_updated": [
+    "README.md",
+    "docs/adr/001-consolidate-appsettings-settingsstore.md"
+  ],
+  "docs_scaffolded": [
+    "CHANGELOG.md",
+    "docs/DEVELOPER-GUIDE.md"
+  ],
+  "skill_docs_current": true,
+  "documentation_summary": {
+    "updated_files": 2,
+    "created_files": 2,
+    "key_changes": [
+      "Added Swift 6 @Observable migration section to README.md",
+      "Created CHANGELOG.md with breaking change documentation for AppSettings consolidation",
+      "Created comprehensive DEVELOPER-GUIDE.md with migration guide, patterns, and troubleshooting"
+    ]
+  },
+  "adr_reference": {
+    "file": "docs/adr/001-consolidate-appsettings-settingsstore.md",
+    "status": "Accepted",
+    "decision": "Typealias AppSettings = SettingsStore"
+  },
+  "migration_documentation": {
+    "breaking_change": "AppSettings is now SettingsStore via typealias",
+    "backward_compatibility": "Convenience init added, Views using @Bindable AppSettings work without changes",
+    "pattern_change": "didSet persistence → @Observable with access/withMutation",
+    "guide_location": "docs/DEVELOPER-GUIDE.md"
+  },
+  "architecture_docs": {
+    "c4_diagrams_exist": false,
+    "c4_update_needed": false,
+    "note": "No C4 diagrams exist in the repository; nothing to update"
+  }
+}

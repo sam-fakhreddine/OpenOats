@@ -1,0 +1,52 @@
+{
+  "stakeholders": [
+    {
+      "name": "Lead Developer (Sam Fakhreddine)",
+      "role": "Primary feature implementer and repository owner",
+      "influence": "blocker",
+      "concern": "Resolving compilation errors while preserving MLX audio and model storage features already implemented"
+    },
+    {
+      "name": "Meeting Detection Feature Owner",
+      "role": "Dependent feature developer",
+      "influence": "blocker",
+      "concern": "Base branch stability blocking meeting detection development progress"
+    },
+    {
+      "name": "MLX Audio Integration Owner",
+      "role": "MLXWhisperBackend implementer",
+      "influence": "influencer",
+      "concern": "Ensuring dependency resolution (swift-transformers conflict) remains intact during base fixes"
+    },
+    {
+      "name": "Model Storage Feature Owner",
+      "role": "Configurable storage location developer",
+      "influence": "influencer",
+      "concern": "AppSettings architecture changes must maintain @Observable pattern compatibility"
+    },
+    {
+      "name": "Build/CI System",
+      "role": "Automated validation gate",
+      "influence": "blocker",
+      "concern": "Swift compilation must pass with zero errors for any merge to proceed"
+    },
+    {
+      "name": "Code Reviewers",
+      "role": "Quality assurance and merge approvers",
+      "influence": "influencer",
+      "concern": "Swift 6 concurrency compliance and supply chain security (pinned dependencies)"
+    },
+    {
+      "name": "Downstream Feature Branches",
+      "role": "feat/meeting-detection and related work",
+      "influence": "informed",
+      "concern": "Rebase requirements and integration timing after base stabilizes"
+    }
+  ],
+  "alignment_strategy": "Lead Developer resolves compilation errors with priority on unblocking Meeting Detection work. MLX Audio and Model Storage owners consulted for validation that existing features remain intact. Build system serves as final gate. Downstream branches informed of stabilization timeline for rebase planning.",
+  "blockers": [
+    "Lead Developer must complete fixes",
+    "Meeting Detection blocked until base branch compiles",
+    "CI build must pass clean"
+  ]
+}

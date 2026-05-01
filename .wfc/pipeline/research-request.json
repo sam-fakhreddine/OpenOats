@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0",
+  "request_id": "research-3tier-swift-20260501",
+  "from_skill": "wfc-ba",
+  "research_type": "technical",
+  "query": "3-tier architecture patterns for Swift macOS applications with focus on protocol-based dependency injection and Swift 6.2 concurrency",
+  "sub_questions": [
+    "What are the best practices for separating Presentation, Business Logic, Domain, and Infrastructure layers in Swift 6.2?",
+    "How should boundary contracts (protocols) be designed for audio transcription systems with multiple backends?",
+    "What migration strategies work best for refactoring 36K+ line Swift codebases from monolithic to layered architecture?",
+    "What are the risks and anti-patterns to avoid when implementing 3-tier architecture in SwiftUI apps?"
+  ],
+  "output_path": ".wfc/pipeline/research-packet.json",
+  "constraints": {
+    "max_sources": 10,
+    "recency_preference": "last_year",
+    "excluded_domains": []
+  }
+}

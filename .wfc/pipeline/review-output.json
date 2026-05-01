@@ -1,0 +1,34 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-review",
+  "to_skill": "wfc-pm",
+  "step": "review",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/review-output.json",
+    "human": ".wfc/reviews/REVIEW-base-branch-fixes-001.md"
+  },
+  "payload": {
+    "verdict": "PASSED",
+    "consensus_score": 5.8,
+    "r_max": 7.0,
+    "r_p75": 6.0,
+    "r_p50": 5.0,
+    "max_agreement": 2,
+    "total_findings": 35,
+    "high_critical_count": 0,
+    "reviewers_spawned": ["Security", "Correctness", "Performance", "Maintainability", "Reliability"],
+    "findings_by_category": {
+      "security": 6,
+      "correctness": 0,
+      "performance": 11,
+      "maintainability": 7,
+      "reliability": 11
+    },
+    "blocking_rules_triggered": [],
+    "review_iterations": 1,
+    "report_path": ".wfc/reviews/REVIEW-base-branch-fixes-001.md"
+  }
+}

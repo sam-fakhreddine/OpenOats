@@ -1,0 +1,9 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-ba",
+  "to_skill": "wfc-competitive",
+  "topic": "Swift clean architecture patterns and transcription system designs",
+  "competitors": ["TCA (The Composable Architecture)", "Apple Framework Patterns", "Clean Swift Architecture", "VIPER"],
+  "focus": "architecture",
+  "output_path": ".wfc/pipeline/competitive-findings.json"
+}

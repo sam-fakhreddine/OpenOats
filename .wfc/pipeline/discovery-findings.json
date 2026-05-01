@@ -1,0 +1,55 @@
+{
+  "pain_points": [
+    {"issue": "AppSettings class is missing ~40 properties that Views expect (sidebarMode, meetingAutoDetectEnabled, transcriptionModel, etc.)", "impact": "Views cannot compile; app is completely unbuildable"},
+    {"issue": "Type mismatches between AppSettings and SettingsStore - Views expect Bindable<AppSettings> but some get SettingsStore", "impact": "Cannot pass settings to wizard views; runtime type errors"},
+    {"issue": "ParakeetBackend.swift missing 'decoderState' parameter in transcribe() call after library update", "impact": "Transcription backend fails to compile; mlx-audio feature broken"},
+    {"issue": "OpenOatsLocalModelStore.swift has exhaustive switch errors for new AsrModelVersion.tdtJa case", "impact": "Model storage code fails; missing enum case handling"},
+    {"issue": "Repo.parakeet symbol not found - library API changed from parakeet to specific versions", "impact": "Model path resolution broken; cannot locate transcription models"},
+    {"issue": "ContentView.swift type-checking timeout on complex expressions with settings bindings", "impact": "Compiler cannot resolve types; build performance issues"},
+    {"issue": "Cannot infer contextual base for '.whitespacesAndNewlines' in ParakeetBackend", "impact": "Foundation import issues; string trimming fails"},
+    {"issue": "SidecastSettingsTab expects sidecastPersonas, sidecastTemperature, etc. that don't exist", "impact": "Sidecast feature UI completely broken"},
+    {"issue": "SetupWizardView expects SettingsStore but ContentView passes AppSettings", "impact": "Type mismatch prevents onboarding from working"},
+    {"issue": "Deleted files (AppSecretStore, CalendarEvent, SidecastPersona) still referenced in codebase", "impact": "Missing dependencies cause cascading compilation failures"},
+    {"issue": "SettingsStorage references AppSecretStore which was deleted", "impact": "Settings persistence layer is broken"},
+    {"issue": "Meeting detection integration incomplete - hasShownAutoDetectExplanation, ignoredAppBundleIDs missing", "impact": "Meeting detection feature cannot compile or function"}
+  ],
+  "jobs_to_be_done": [
+    "Get the codebase to compile successfully so development can resume",
+    "Reconcile AppSettings implementation with View expectations - add missing properties",
+    "Fix ParakeetBackend to work with updated FluidAudio library API",
+    "Update OpenOatsLocalModelStore to handle all AsrModelVersion cases",
+    "Restore or replace deleted types (AppSecretStore, CalendarEvent, SidecastPersona)",
+    "Fix type mismatches between AppSettings and SettingsStore usage across Views",
+    "Ensure mlx-audio feature remains functional after fixes",
+    "Preserve meeting detection feature integration during refactoring",
+    "Enable clean build that passes CI validation",
+    "Run tests to verify nothing is broken after compilation fixes"
+  ],
+  "success_criteria": [
+    "Zero compilation errors when running 'swift build'",
+    "All Views can access required properties from AppSettings",
+    "Parakeet transcription backend compiles and functions",
+    "Setup wizard can be presented without type errors",
+    "Sidecast panel can display with all required settings",
+    "Meeting detection settings are accessible in SettingsView",
+    "mlx-audio integration remains intact",
+    "CI validation workflow passes",
+    "Unit tests compile and pass",
+    "No regression in existing features (transcription, suggestions, notes)"
+  ],
+  "user_journey": [
+    "Developer clones repo and checks out feat/mlx-audio-and-model-storage branch",
+    "Developer runs 'swift build' and encounters ~20 compilation errors",
+    "Developer analyzes error patterns: missing properties, type mismatches, deleted files",
+    "Developer maps View expectations against AppSettings implementation",
+    "Developer adds missing properties to AppSettings to match SettingsStore coverage",
+    "Developer fixes ParakeetBackend.swift API compatibility issues",
+    "Developer updates exhaustive switches for new enum cases",
+    "Developer resolves type conflicts between AppSettings and SettingsStore",
+    "Developer restores or stubs deleted dependency types",
+    "Developer runs 'swift build' and sees clean compilation",
+    "Developer runs tests to verify no regressions",
+    "Developer pushes fixes and CI passes",
+    "Developer can now continue feature development on stable base"
+  ]
+}

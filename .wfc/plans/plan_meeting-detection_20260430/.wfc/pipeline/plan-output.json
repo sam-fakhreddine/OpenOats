@@ -1,0 +1,79 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-plan",
+  "to_skill": "wfc-implement",
+  "step": "plan",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/plan-output.json",
+    "human": "TASKS.md"
+  },
+  "payload": {
+    "plan_dir": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_meeting-detection_20260430",
+    "plan_audit_path": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_meeting-detection_20260430/plan-audit.json",
+    "task_count": 27,
+    "property_count": 22,
+    "validation_status": "passed",
+    "recommended_next_skill": "wfc-implement",
+    "complexity": "medium",
+    "tdd_required": true,
+    "waves": [
+      {
+        "name": "Wave 1: Core Detection Infrastructure",
+        "tasks": ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005", "TASK-006", "TASK-007", "TASK-008"],
+        "estimated_hours": 20
+      },
+      {
+        "name": "Wave 2: Detection Engine State Machine",
+        "tasks": ["TASK-009", "TASK-010", "TASK-011", "TASK-012", "TASK-013", "TASK-014"],
+        "estimated_hours": 18
+      },
+      {
+        "name": "Wave 3: Integration & Polish",
+        "tasks": ["TASK-015", "TASK-016", "TASK-017", "TASK-018", "TASK-019", "TASK-020", "TASK-021", "TASK-022", "TASK-023", "TASK-024", "TASK-025", "TASK-026", "TASK-027"],
+        "estimated_hours": 28
+      }
+    ],
+    "requirements_satisfied": {
+      "must": ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-007", "REQ-008", "REQ-009"],
+      "should": ["REQ-010", "REQ-011", "REQ-012"],
+      "could": ["REQ-013", "REQ-014"],
+      "wont": ["REQ-015", "REQ-016"]
+    },
+    "files_created": [
+      "TASKS.md",
+      "PROPERTIES.md",
+      "TEST-PLAN.md"
+    ],
+    "new_test_files": [
+      "OpenOats/Tests/OpenOatsTests/Detection/MeetingAppMonitorTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/MeetingAppRegistryTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/MeetingAppMonitorIntegrationTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/MeetingDetectionEngineTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/SilenceTimeoutTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/NotificationHandlingTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/AppCoordinatorIntegrationTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/IgnoredAppsTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/ConfidenceScoringTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/StateVisibilityTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/AppTerminationTests.swift",
+      "OpenOats/Tests/OpenOatsTests/Detection/EndToEndDetectionTests.swift"
+    ],
+    "mock_files": [
+      "OpenOats/Sources/OpenOats/Detection/Mocks/MockAVCaptureDevice.swift",
+      "OpenOats/Sources/OpenOats/Detection/Mocks/MockNSWorkspace.swift",
+      "OpenOats/Sources/OpenOats/Detection/Mocks/MockSettingsStore.swift",
+      "OpenOats/Sources/OpenOats/Detection/Mocks/MockUNUserNotificationCenter.swift",
+      "OpenOats/Sources/OpenOats/Detection/Mocks/MockAppCoordinator.swift",
+      "OpenOats/Sources/OpenOats/Detection/Mocks/StubTimer.swift"
+    ],
+    "modified_source_files": [
+      "OpenOats/Sources/OpenOats/Detection/MeetingAppMonitor.swift",
+      "OpenOats/Sources/OpenOats/Detection/MeetingDetectionEngine.swift",
+      "OpenOats/Sources/OpenOats/App/AppCoordinator.swift",
+      "OpenOats/Sources/OpenOats/Views/SettingsView.swift"
+    ]
+  }
+}

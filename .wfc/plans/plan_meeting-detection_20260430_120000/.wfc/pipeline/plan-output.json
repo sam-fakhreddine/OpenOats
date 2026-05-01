@@ -1,0 +1,21 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-plan",
+  "to_skill": "wfc-architect",
+  "step": "plan",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/plan-output.json",
+    "human": "TASKS.md"
+  },
+  "payload": {
+    "plan_dir": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_meeting-detection_20260430_120000",
+    "plan_audit_path": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_meeting-detection_20260430_120000/plan-audit.json",
+    "task_count": 10,
+    "property_count": 12,
+    "validation_status": "passed",
+    "recommended_next_skill": "wfc-deepen"
+  }
+}

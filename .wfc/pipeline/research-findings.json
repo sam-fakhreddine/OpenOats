@@ -1,0 +1,411 @@
+{
+  "metadata": {
+    "project": "OpenOats",
+    "topic": "3-tier Clean Architecture + MVVM for macOS transcription app",
+    "research_date": "2026-05-01",
+    "subagent": "wfc-researcher"
+  },
+  "patterns_found": {
+    "clean_architecture_swift": [
+      {
+        "name": "Interactor Pattern",
+        "description": "Stateless business logic encapsulation that receives requests but never returns data directly. Forwards results to AppState or Binding.",
+        "source": "Alexey Naumov - Clean Architecture for SwiftUI",
+        "url": "https://nalexn.github.io/clean-architecture-swiftui/",
+        "applicability": "High - fits OpenOats use case for transcription orchestration",
+        "code_example": "protocol CountriesInteractor { func loadCountries() }\nstruct RealCountriesInteractor: CountriesInteractor { let webRepository: CountriesWebRepository; let appState: AppState }"
+      },
+      {
+        "name": "Repository Pattern",
+        "description": "Abstract gateway for reading/writing data. Provides async API for CRUD operations. Stateless, no business logic, no AppState mutation.",
+        "source": "Clean Architecture (Uncle Bob) + SwiftUI adaptation",
+        "url": "https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html",
+        "applicability": "High - perfect for multiple transcription backends (MLX, WhisperKit, AssemblyAI)",
+        "code_example": "protocol TranscriptionRepository { func transcribe(audioData: Data) -> AnyPublisher<String, Error> }\nstruct WhisperKitRepository: TranscriptionRepository { let session: URLSession }"
+      },
+      {
+        "name": "AppState (Redux-like)",
+        "description": "ObservableObject serving as single source of truth. Contains userData, routing, system state. Protocol-facaded for testability.",
+        "source": "Clean Architecture SwiftUI Demo",
+        "url": "https://github.com/nalexn/clean-architecture-swiftui",
+        "applicability": "Medium - transcription state management needs careful design",
+        "code_example": "class AppState: ObservableObject { @Published var userData = UserData(); @Published var routing = ViewRouting(); @Published var system = System() }"
+      }
+    ],
+    "protocol_based_di": [
+      {
+        "name": "Protocol-Oriented Dependency Injection",
+        "description": "Define protocols for each layer boundary. Inner layers declare protocols, outer layers implement. Uses DIP (Dependency Inversion Principle).",
+        "source": "Clean Architecture Dependency Rule",
+        "applicability": "Critical - enables multiple transcription backends",
+        "pattern": "Inner circle declares protocol (TranscriptionService), outer circle implements (MLXTranscriptionService, WhisperKitService, AssemblyAIService)"
+      },
+      {
+        "name": "Constructor Injection",
+        "description": "Dependencies injected via init parameters. Enables testability and loose coupling.",
+        "source": "General DI best practices",
+        "applicability": "High - all interactors and repositories should use constructor injection",
+        "code_example": "struct RealCountriesInteractor: CountriesInteractor { let webRepository: CountriesWebRepository; let appState: AppState; init(webRepository: CountriesWebRepository, appState: AppState) { ... } }"
+      },
+      {
+        "name": "Environment Injection (SwiftUI)",
+        "description": "Use @Environment and @EnvironmentObject for SwiftUI-native DI",
+        "source": "Clean Architecture for SwiftUI",
+        "applicability": "High - native SwiftUI approach for view layer",
+        "code_example": "struct CountriesList: View { @EnvironmentObject var appState: AppState; @Environment(\\.interactors) var interactors: InteractorsContainer }"
+      }
+    ],
+    "swift_6_2_concurrency": [
+      {
+        "name": "Sendable Protocol",
+        "description": "Marks types as safe to share across concurrency domains. Value types automatically Sendable. Reference types need explicit conformance.",
+        "source": "Swift Concurrency Documentation",
+        "applicability": "Critical - all entities crossing boundaries must be Sendable",
+        "recommendation": "Make all Domain layer entities (Transcription, AudioSegment) Sendable. Use @Sendable for closures passed across isolation boundaries."
+      },
+      {
+        "name": "Actor Isolation",
+        "description": "Actors protect mutable state. MainActor for UI, custom actors for concurrent workloads.",
+        "source": "Swift Concurrency",
+        "applicability": "High - transcription backends run on background, results on MainActor",
+        "pattern": "@globalActor struct TranscriptionActor { static let shared = TranscriptionActor() }"
+      },
+      {
+        "name": "MainActor",
+        "description": "Ensures UI updates happen on main thread. @MainActor annotation on ViewModels and UI-related methods.",
+        "source": "Swift Concurrency",
+        "applicability": "High - all SwiftUI view models should be @MainActor",
+        "code_example": "@MainActor class TranscriptionViewModel: ObservableObject { @Published var transcription: String = \"\" }"
+      },
+      {
+        "name": "Global Actors for Resources",
+        "description": "Create custom global actors for shared resources like audio engines.",
+        "source": "Swift Concurrency Best Practices",
+        "applicability": "Medium - audio processing needs careful isolation",
+        "recommendation": "Use @AudioActor for audio session management to prevent concurrent access issues."
+      }
+    ]
+  },
+  "prior_art": {
+    "clean_architecture_swiftui": {
+      "name": "Clean Architecture for SwiftUI (nalexn)",
+      "url": "https://github.com/nalexn/clean-architecture-swiftui",
+      "stars": 6500,
+      "features": [
+        "97% test coverage",
+        "Programmatic navigation with deep links",
+        "SwiftData persistence layer",
+        "Async/await networking",
+        "Native SwiftUI dependency injection"
+      ],
+      "relevance": "Primary reference - demonstrates the exact 3-tier pattern OpenOats needs",
+      "key_takeaways": [
+        "Interactors should be stateless and protocol-facaded",
+        "Repositories provide async CRUD, no business logic",
+        "AppState as single source of truth with @Published properties",
+        "Use @Environment for DI in views",
+        "Full test coverage achievable with protocol-based DI"
+      ]
+    },
+    "whisperkit": {
+      "name": "WhisperKit (argmaxinc)",
+      "url": "https://github.com/argmaxinc/argmax-oss-swift",
+      "stars": 6052,
+      "features": [
+        "On-device speech AI for Apple Silicon",
+        "Multiple model backends (Whisper variants)",
+        "MLX integration for inference"
+      ],
+      "relevance": "Infrastructure layer reference - shows how to abstract multiple transcription backends",
+      "key_takeaways": [
+        "Protocol-based abstraction for different model backends",
+        "On-device processing with MLX optimization",
+        "Async/await API design for transcription operations"
+      ]
+    },
+    "swift_combining": {
+      "name": "Clean Architecture + Combine Pattern",
+      "description": "Using Combine Publishers for async operations between layers",
+      "pattern": "Repositories return AnyPublisher<T, Error>, Interactors subscribe and update AppState",
+      "relevance": "Alternative to async/await for streaming transcription results"
+    }
+  },
+  "failure_modes_and_mitigations": {
+    "clean_architecture_pitfalls": [
+      {
+        "failure": "Over-abstraction with too many layers",
+        "symptom": "Simple features require changes in 10+ files",
+        "mitigation": "Start with 3 layers (Domain, Business, Infrastructure). Only split when complexity demands. Use feature-based organization within layers."
+      },
+      {
+        "failure": "Anemic Domain Models",
+        "symptom": "Entities are just data bags with no behavior",
+        "mitigation": "Rich domain models with validation logic. Entities should encapsulate business invariants."
+      },
+      {
+        "failure": "Leaking Infrastructure into Domain",
+        "symptom": "Domain imports Foundation or UIKit",
+        "mitigation": "Strict dependency rule enforcement. Domain layer should be pure Swift with no external imports except maybe Foundation for basic types."
+      },
+      {
+        "failure": "Interactor Bloat",
+        "symptom": "Interactors grow to 500+ lines handling too many responsibilities",
+        "mitigation": "Split interactors by feature/use case. Follow SRP - one interactor per significant operation."
+      },
+      {
+        "failure": "Repository Duplication",
+        "symptom": "Similar queries in multiple repositories",
+        "mitigation": "Generic repository base class with specialized implementations. Shared query builders for common operations."
+      }
+    ],
+    "swift_concurrency_pitfalls": [
+      {
+        "failure": "Data races with non-Sendable types",
+        "symptom": "Swift 6.2 StrictConcurrency warnings or runtime crashes",
+        "mitigation": "Audit all types crossing concurrency boundaries. Make entities Sendable. Use actors for shared mutable state."
+      },
+      {
+        "failure": "MainActor blocking",
+        "symptom": "UI freezes during transcription processing",
+        "mitigation": "Heavy work on background actors, only UI updates on MainActor. Never call blocking APIs from @MainActor."
+      },
+      {
+        "failure": "Actor reentrancy issues",
+        "symptom": "Inconsistent state when multiple calls interleave",
+        "mitigation": "Design actors with reentrancy in mind. Use async let for parallel work. Check state after suspension points."
+      },
+      {
+        "failure": "Continuation misuse",
+        "symptom": "Missing or double resume of continuations",
+        "mitigation": "Always use defer or finally blocks to ensure continuation is resumed exactly once. Consider using wrappers."
+      }
+    ],
+    "migration_pitfalls": [
+      {
+        "failure": "Big-bang rewrite",
+        "symptom": "Months of work with no shippable increments, regression risk",
+        "mitigation": "Strangler Fig pattern - incrementally extract features behind facade. Maintain working app throughout."
+      },
+      {
+        "failure": "Untangling spaghetti dependencies",
+        "symptom": "Everything depends on everything, can't extract modules",
+        "mitigation": "Start with infrastructure (repositories) - easiest to extract with protocol boundaries. Then extract domain entities. Business logic (interactors) last."
+      },
+      {
+        "failure": "Test regression during migration",
+        "symptom": "Existing tests break as you refactor",
+        "mitigation": "Maintain integration tests throughout. Add unit tests for extracted components. Use characterization tests to verify behavior preservation."
+      },
+      {
+        "failure": "Premature abstraction",
+        "symptom": "Abstractions added before understanding domain, wrong boundaries",
+        "mitigation": "Extract working code first, then abstract. Let the domain guide the architecture, not the reverse."
+      }
+    ]
+  },
+  "migration_strategies": {
+    "strangler_fig": {
+      "name": "Strangler Fig Pattern",
+      "description": "Incrementally replace monolith by routing calls through facade to new architecture",
+      "applicability": "Primary strategy for 36K line codebase",
+      "steps": [
+        "1. Identify bounded contexts (transcription, audio processing, UI)",
+        "2. Create facade layer that routes to old or new implementation",
+        "3. Extract one context at a time starting with lowest coupling",
+        "4. Maintain working app at each step",
+        "5. Remove old code when context fully migrated"
+      ],
+      "source": "Martin Fowler - Strangler Fig Application"
+    },
+    "layer_first": {
+      "name": "Layer-by-Layer Extraction",
+      "description": "Extract horizontal layers starting from bottom (Infrastructure) up",
+      "applicability": "Good for OpenOats - clear infrastructure boundaries (MLX, WhisperKit, AssemblyAI)",
+      "recommended_order": [
+        "1. Infrastructure (Repositories) - Extract transcription backends first. Create protocol boundaries.",
+        "2. Domain (Entities) - Extract value objects and core business rules.",
+        "3. Business (Interactors) - Extract use cases. Most complex, depends on other layers.",
+        "4. Presentation (MVVM) - Refactor view models last after business layer stable."
+      ]
+    },
+    "feature_first": {
+      "name": "Feature-by-Feature Extraction",
+      "description": "Extract vertical slices (full stack features) one at a time",
+      "applicability": "Alternative if features are well-isolated",
+      "example": "Extract 'File Transcription' feature end-to-end, then 'Real-time Transcription'"
+    }
+  },
+  "recommendations_for_openoats": {
+    "architecture_boundaries": {
+      "domain_layer": {
+        "contents": [
+          "Entities: Transcription, AudioSegment, Speaker, Timestamp",
+          "Value Objects: TranscriptionQuality, AudioFormat, Confidence",
+          "Core Protocols: TranscriptionRepositoryProtocol, AudioSourceProtocol"
+        ],
+        "rules": [
+          "No imports of UIKit, SwiftUI, or external frameworks",
+          "All types must be Sendable for Swift 6.2 compatibility",
+          "Rich models with validation, not anemic data bags",
+          "Pure Swift, no side effects"
+        ]
+      },
+      "business_layer": {
+        "contents": [
+          "Interactors: TranscriptionInteractor, AudioProcessingInteractor",
+          "Services: TranscriptionService (orchestrates multiple backends)",
+          "Use Cases: TranscribeFile, TranscribeStream, ExportTranscription"
+        ],
+        "rules": [
+          "Stateless - all state in injected AppState or returned via Binding",
+          "Protocol-facaded for testability",
+          "Async/await or Combine for async operations",
+          "No direct UI layer references"
+        ]
+      },
+      "infrastructure_layer": {
+        "contents": [
+          "Repositories: MLXTranscriptionRepository, WhisperKitRepository, AssemblyAIRepository",
+          "Data Sources: FileAudioSource, MicrophoneAudioSource",
+          "External Adapters: API clients for cloud services"
+        ],
+        "rules": [
+          "Implement domain protocols",
+          "Handle all external dependencies (WhisperKit, MLX, URLSession)",
+          "Convert external errors to domain errors",
+          "Repository-level caching if needed"
+        ]
+      },
+      "presentation_layer": {
+        "contents": [
+          "Views: SwiftUI views for transcription UI",
+          "ViewModels: @MainActor ObservableObjects that bridge to interactors",
+          "Navigation: Programmatic routing via AppState"
+        ],
+        "rules": [
+          "Views are functions of state only - no business logic",
+          "ViewModels use @Environment for DI",
+          "All UI updates on MainActor",
+          "Thin ViewModels - delegate to interactors"
+        ]
+      }
+    },
+    "multi_backend_strategy": {
+      "problem": "Support MLX (local), WhisperKit (local), AssemblyAI (cloud)",
+      "solution": "Repository pattern with protocol abstraction",
+      "protocol_design": "protocol TranscriptionRepository: Sendable { func transcribe(audio: AudioData) async throws -> Transcription }",
+      "implementations": [
+        "MLXTranscriptionRepository: Uses MLX Swift for local inference",
+        "WhisperKitRepository: Wraps WhisperKit framework",
+        "AssemblyAIRepository: HTTP client for cloud API",
+        "CompositeRepository: Switches based on availability/settings"
+      ],
+      "selection_strategy": "Interactor selects repository based on: availability (MLX/WhisperKit model loaded?), user preference, fallback chain (local first, cloud fallback)"
+    },
+    "concurrency_strategy": {
+      "actors": [
+        "@MainActor: All ViewModels, UI updates",
+        "TranscriptionActor: Transcription processing queue",
+        "AudioActor: Audio session management"
+      ],
+      "sendable_requirements": [
+        "All domain entities (Transcription, AudioSegment) conform to Sendable",
+        "All repository protocols require Sendable implementations",
+        "Use @Sendable for callback closures"
+      ],
+      "pattern": "async/await for transcription flow: ViewModel (MainActor) -> Interactor -> Repository (background actor) -> result back to MainActor"
+    },
+    "migration_roadmap": {
+      "phase_1_infrastructure": {
+        "duration": "2-3 weeks",
+        "tasks": [
+          "Define TranscriptionRepository protocol",
+          "Create WhisperKitRepository wrapper (if not using directly)",
+          "Create AssemblyAIRepository",
+          "Create RepositoryFactory for selection logic",
+          "Write unit tests for repositories with mocked dependencies"
+        ],
+        "success_criteria": "Repositories extracted with passing tests, old code still works"
+      },
+      "phase_2_domain": {
+        "duration": "1-2 weeks",
+        "tasks": [
+          "Define Transcription, AudioSegment entities",
+          "Make all entities Sendable",
+          "Add validation logic to entities",
+          "Create domain-specific errors"
+        ],
+        "success_criteria": "Domain layer defined, no dependencies on outer layers"
+      },
+      "phase_3_business": {
+        "duration": "3-4 weeks",
+        "tasks": [
+          "Create TranscriptionInteractor with protocol facade",
+          "Migrate transcription orchestration logic from view models",
+          "Implement fallback chain logic (local -> cloud)",
+          "Add progress reporting via Binding or AppState"
+        ],
+        "success_criteria": "Business logic moved out of views, interactor tested"
+      },
+      "phase_4_presentation": {
+        "duration": "2 weeks",
+        "tasks": [
+          "Refactor ViewModels to use Interactors",
+          "Move state to AppState where appropriate",
+          "Update dependency injection",
+          "Verify UI tests still pass"
+        ],
+        "success_criteria": "Clean MVVM with thin view models, full architecture in place"
+      },
+      "phase_5_cleanup": {
+        "duration": "1 week",
+        "tasks": [
+          "Remove old monolith code",
+          "Delete redundant classes",
+          "Final integration testing",
+          "Performance validation"
+        ]
+      }
+    }
+  },
+  "citations": [
+    {
+      "source": "Uncle Bob - The Clean Architecture",
+      "url": "https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html",
+      "key_concepts": ["Dependency Rule", "Entities", "Use Cases", "Interface Adapters"],
+      "relevance": "Foundational principles - source of 3-tier architecture"
+    },
+    {
+      "source": "Alexey Naumov - Clean Architecture for SwiftUI",
+      "url": "https://nalexn.github.io/clean-architecture-swiftui/",
+      "key_concepts": ["Interactor pattern", "SwiftUI native DI", "AppState"],
+      "relevance": "Primary Swift reference - 97% test coverage, production proven"
+    },
+    {
+      "source": "GitHub: nalexn/clean-architecture-swiftui",
+      "url": "https://github.com/nalexn/clean-architecture-swiftui",
+      "key_concepts": ["SwiftData integration", "Programmatic navigation", "Combine/async-await"],
+      "relevance": "Prior art with full source code, actively maintained (last update Dec 2024)"
+    },
+    {
+      "source": "GitHub: argmaxinc/argmax-oss-swift (WhisperKit)",
+      "url": "https://github.com/argmaxinc/argmax-oss-swift",
+      "key_concepts": ["MLX integration", "On-device inference", "Multi-model backend"],
+      "relevance": "Infrastructure layer reference for transcription backends"
+    },
+    {
+      "source": "Swift Concurrency Documentation",
+      "url": "https://www.hackingwithswift.com/quick-start/concurrency",
+      "key_concepts": ["Sendable", "MainActor", "Actor isolation"],
+      "relevance": "Swift 6.2 concurrency patterns for data race safety"
+    }
+  ],
+  "open_questions": [
+    "What is the current organization of OpenOats? (monolith structure, key classes)",
+    "Are there existing tests to preserve during migration?",
+    "What audio processing libraries are currently used? (AVFoundation, AudioKit?)",
+    "Is there existing cloud transcription integration (AssemblyAI) or is that new?",
+    "What's the target timeline for the architecture migration?",
+    "Are there specific performance requirements for transcription latency?"
+  ]
+}

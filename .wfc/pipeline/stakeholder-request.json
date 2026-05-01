@@ -1,0 +1,21 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-ba",
+  "to_skill": "wfc-stakeholder",
+  "initiative": "Design a 3-tier architecture refactor for OpenOats transcription system - DESIGN ONLY, no implementation",
+  "timeline": "Design phase completion required before any implementation work",
+  "known_objections": [
+    "Risk of breaking existing transcription functionality",
+    "Concern about time investment vs feature development",
+    "Uncertainty about migration complexity from 36K line codebase",
+    "Performance impact concerns with layered architecture"
+  ],
+  "stakeholders": [
+    {"name": "Lead Developer", "role": "Primary code owner", "authority": "blocker", "concern": "Maintainability and testability"},
+    {"name": "Product Owner", "role": "Product management", "authority": "influencer", "concern": "Preserved functionality and timeline"},
+    {"name": "End Users", "role": "Meeting transcription users", "authority": "informed", "concern": "Stability and performance"},
+    {"name": "Future Contributors", "role": "Open source contributors", "authority": "influencer", "concern": "Code clarity and onboarding ease"},
+    {"name": "MLX/WhisperKit Dependencies", "role": "External frameworks", "authority": "blocker", "concern": "Integration compatibility"}
+  ],
+  "output_path": ".wfc/pipeline/stakeholder-findings.json"
+}

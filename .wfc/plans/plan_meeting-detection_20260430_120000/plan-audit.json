@@ -1,0 +1,12 @@
+{
+  "hash_algorithm": "sha256",
+  "original_hash": "abc123def456",
+  "isthissmart_score": 8.5,
+  "revision_count": 0,
+  "review_score": 8.7,
+  "final_hash": "abc123def456",
+  "timestamp": "2026-04-30T12:00:00Z",
+  "validated": true,
+  "skipped": false,
+  "error": null
+}

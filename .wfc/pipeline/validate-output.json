@@ -1,0 +1,39 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-validate",
+  "to_skill": "wfc-pm",
+  "step": "validate",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/validate-output.json",
+    "human": "VALIDATE.md"
+  },
+  "payload": {
+    "verdict": "PROCEED",
+    "overall_score": 8.4,
+    "mode": "ADR Evaluation",
+    "dimension_results": [
+      {"dimension": "Decision Clarity", "score": 9, "status": "pass"},
+      {"dimension": "Reversibility", "score": 9, "status": "pass"},
+      {"dimension": "Constraint Coverage", "score": 8, "status": "pass"},
+      {"dimension": "Scope Discipline", "score": 8, "status": "pass"},
+      {"dimension": "Internal Consistency", "score": 9, "status": "pass"},
+      {"dimension": "Phasing Honesty", "score": 8, "status": "pass"},
+      {"dimension": "Decision-to-Implementation Ratio", "score": 8, "status": "pass"}
+    ],
+    "critical_blockers": [],
+    "recommendations": [
+      "Add Keychain service name constraint to ADR",
+      "Document default value verification requirement",
+      "Add explicit verification gate before AppSettings.swift removal"
+    ],
+    "risk_assessment": {
+      "property_type_mismatch": {"likelihood": "Medium", "impact": "High", "mitigated": true},
+      "initialization_pattern_change": {"likelihood": "Medium", "impact": "Medium", "mitigated": true},
+      "keychain_service_conflict": {"likelihood": "Low", "impact": "Medium", "mitigated": false},
+      "bindable_binding_breakage": {"likelihood": "Low", "impact": "High", "mitigated": true}
+    }
+  }
+}

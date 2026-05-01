@@ -1,0 +1,146 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║                    OLDOATS: "BIG BALL OF MUD"                              ║
+║                         (Current Architecture)                           ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           UI LAYER (SwiftUI)                            │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                                                                 │   │
+│  │   ┌─────────────────────────────────────────────────────────┐  │   │
+│  │   │                                                         │  │   │
+│  │   │    NOTESVIEW.swift                                      │  │   │
+│  │   │    ╔═══════════════════════════════════════════════════╗│  │   │
+│  │   │    ║  📄 3,700 lines of code                          ║│  │   │
+│  │   │    ║                                                   ║│  │   │
+│  │   │    ║  • UI rendering                                  ║│  │   │
+│  │   │    ║  • Business logic                                ║│  │   │
+│  │   │    ║  • Audio handling                                ║│  │   │
+│  │   │    ║  • Transcription orchestration                   ║│  │   │
+│  │   │    ║  • State management                              ║│  │   │
+│  │   │    ║  • File I/O                                       ║│  │   │
+│  │   │    ║  • Settings management                          ║│  │   │
+│  │   │    ║  • Export logic                                  ║│  │   │
+│  │   │    ║  • ...and 20+ other responsibilities            ║│  │   │
+│  │   │    ╚═══════════════════════════════════════════════════╝│  │   │
+│  │   │                                                         │  │   │
+│  │   │         🔥 GOD CLASS - SRP VIOLATION 🔥                 │  │   │
+│  │   │                                                         │  │   │
+│  │   └─────────────────────────────────────────────────────────┘  │   │
+│  │                                                                 │   │
+│  │   ┌─────────────────────────────────────────────────────────┐  │   │
+│  │   │  ContentView.swift (800 lines)                        │  │   │
+│  │   │  SessionView.swift (600 lines)                        │  │   │
+│  │   │  SettingsView.swift (900 lines)                       │  │   │
+│  │   │  ...                                                  │  │   │
+│  │   └─────────────────────────────────────────────────────────┘  │   │
+│  │                                                                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│     🔗 TIGHT COUPLING: Views directly instantiate backends             │
+│     🔗 Views call MLX/WhisperKit directly                              │
+│     🔗 No protocols, no abstraction                                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ Direct instantiation
+                                    │ No dependency injection
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      DATA/BUSINESS LAYER                                │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                                                                 │   │
+│  │   ┌─────────────────────────────────────────────────────────┐  │   │
+│  │   │                                                         │  │   │
+│  │   │    SESSIONREPOSITORY.swift                              │  │   │
+│  │   │    ╔═══════════════════════════════════════════════════╗│  │   │
+│  │   │    ║  📄 2,100 lines of code                          ║│  │   │
+│  │   │    ║                                                   ║│  │   │
+│  │   │    ║  • Session CRUD                                  ║│  │   │
+│  │   │    ║  • Transcript storage                             ║│  │   │
+│  │   │    ║  • Settings persistence                          ║│  │   │
+│  │   │    ║  • Audio file management                          ║│  │   │
+│  │   │    ║  • Cache management                               ║│  │   │
+│  │   │    ║  • Migration logic                                ║│  │   │
+│  │   │    ║  • Export/import                                 ║│  │   │
+│  │   │    ║  • Cloud sync                                     ║│  │   │
+│  │   │    ║  • Backup/restore                                  ║│  │   │
+│  │   │    ║  • ...and 15+ other responsibilities            ║│  │   │
+│  │   │    ╚═══════════════════════════════════════════════════╝│  │   │
+│  │   │                                                         │  │   │
+│  │   │         🔥 GOD CLASS - SRP VIOLATION 🔥                 │  │   │
+│  │   │                                                         │  │   │
+│  │   └─────────────────────────────────────────────────────────┘  │   │
+│  │                                                                 │   │
+│  │   ┌─────────────────────────────────────────────────────────┐  │   │
+│  │   │  TRANSCRIPTIONENGINE.swift (1,500 lines)               │  │   │
+│  │   │  • Direct MLX integration                              │  │   │
+│  │   │  • Direct WhisperKit integration                       │  │   │
+│  │   │  • Hardcoded backend selection                         │  │   │
+│  │   │  • Business logic mixed with infrastructure            │  │   │
+│  │   └─────────────────────────────────────────────────────────┘  │   │
+│  │                                                                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│     🔗 HIGH BLAST RADIUS: 20+ files depend on SessionRepository        │
+│     🔗 Cannot swap backends without changing 15+ files                 │
+│     🔗 No separation of concerns                                        │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ Direct framework dependencies
+                                    │ No abstraction layer
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    INFRASTRUCTURE LAYER (Mixed)                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                                                                 │   │
+│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │   │
+│  │   │              │  │              │  │              │        │   │
+│  │   │    MLX       │  │  WhisperKit  │  │  AssemblyAI  │        │   │
+│  │   │              │  │              │  │              │        │   │
+│  │   │  🔴 Called   │  │  🔴 Called   │  │  🔴 Called   │        │   │
+│  │   │  directly    │  │  directly    │  │  directly    │        │   │
+│  │   │  from UI!    │  │  from UI!    │  │  from UI!    │        │   │
+│  │   │              │  │              │  │              │        │   │
+│  │   └──────────────┘  └──────────────┘  └──────────────┘        │   │
+│  │                                                                 │   │
+│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │   │
+│  │   │  CoreData    │  │   SwiftUI    │  │  AVFoundation│        │   │
+│  │   │  (mixed)     │  │  (mixed)     │  │  (mixed)     │        │   │
+│  │   └──────────────┘  └──────────────┘  └──────────────┘        │   │
+│  │                                                                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│     🔗 NO PROTOCOLS: Cannot swap implementations                        │
+│     🔗 NO DEPENDENCY INJECTION: Hard to test                          │
+│     🔗 LAYER VIOLATIONS: UI calls frameworks directly                 │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                         PROBLEMS SUMMARY                                 ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  📊 CODEBASE METRICS:                                                    ║
+║  • Total Lines: 36,000                                                   ║
+║  • God Classes: 2 (NotesView 3.7K, SessionRepository 2.1K)              ║
+║  • Average File Size: 850 lines (should be <300)                         ║
+║  • Test Coverage: ~15% (should be >80%)                                  ║
+║                                                                          ║
+║  🔴 ARCHITECTURAL DEBT:                                                  ║
+║  • No layer separation (Big Ball of Mud)                                 ║
+║  • No dependency inversion (concrete dependencies everywhere)            ║
+║  • No single responsibility (god classes)                              ║
+║  • No protocol abstraction (cannot swap implementations)                 ║
+║  • No dependency injection (hard to test)                                ║
+║  • Swift 6.2 unsafe (non-Sendable types, data races)                     ║
+║                                                                          ║
+║  ⚠️  RISKS:                                                              ║
+║  • Cannot add new transcription backend without touching 15+ files       ║
+║  • Cannot unit test business logic (tight coupling)                    ║
+║  • UI freezes during transcription (blocking main thread)              ║
+║  • Data races in concurrent code (non-Sendable shared state)           ║
+║  • Regression risk on every change (no test coverage)                    ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝

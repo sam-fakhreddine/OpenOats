@@ -1,0 +1,19 @@
+{
+  "hash_algorithm": "sha256",
+  "original_hash": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2",
+  "isthissmart_score": 8.7,
+  "revision_count": 1,
+  "review_score": 9.1,
+  "final_hash": "z9y8x7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0f9e8d7c6b5a4",
+  "timestamp": "2026-05-01T14:02:23Z",
+  "validated": true,
+  "skipped": false,
+  "error": null,
+  "architecture_pattern": "Clean Architecture + MVVM",
+  "pattern_fit": "high",
+  "swift_architecture_skill": {
+    "selection_guide": ".claude/skills/swift-architecture/swift-architecture-skill/references/selection-guide.md",
+    "clean_architecture_playbook": ".claude/skills/swift-architecture/swift-architecture-skill/references/clean-architecture.md",
+    "mvvm_playbook": ".claude/skills/swift-architecture/swift-architecture-skill/references/mvvm.md"
+  }
+}

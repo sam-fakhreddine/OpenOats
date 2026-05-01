@@ -1,0 +1,12 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-ba",
+  "to_skill": "wfc-discovery",
+  "context": {
+    "project": "OpenOats macOS transcription app",
+    "codebase_size": "36K+ lines Swift",
+    "problem": "Big Ball of Mud - Views contain business logic, massive files (NotesView: 3713 lines, SessionRepository: 2147 lines)",
+    "target": "Clean 3-tier architecture with proper boundaries"
+  },
+  "output_path": ".wfc/pipeline/discovery-findings.json"
+}

@@ -1,0 +1,293 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-ba",
+  "to_skill": "wfc-pm",
+  "step": "requirements-synthesis",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {"machine": ".wfc/pipeline/ba-output.json"},
+  "payload": {
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "text": "Design Architecture Design Document defining 4-layer separation: Presentation (SwiftUI Views), Business Logic (Use Cases/Interactors), Domain (Entities/Models), and Infrastructure (Repositories/Services)",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Document clearly defines each layer's responsibilities",
+          "Layer dependencies flow inward only (Presentation → Business → Domain ← Infrastructure)",
+          "Explicit data flow patterns documented with diagrams",
+          "Swift 6.2 concurrency patterns specified for each layer"
+        ],
+        "source": "discovery",
+        "rice_score": {"reach": 10, "impact": 9, "confidence": 8, "effort": 5}
+      },
+      {
+        "id": "REQ-002",
+        "text": "Create Boundary Contracts (protocols) for the Transcription layer enabling multiple backend implementations (MLX, WhisperKit, AssemblyAI, Parakeet)",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "TranscriptionService protocol defines common interface for all backends",
+          "TranscriptionBackend protocol abstracts provider-specific implementations",
+          "Async/await signatures for all transcription operations",
+          "Error handling contract with domain-specific error types"
+        ],
+        "source": "discovery",
+        "rice_score": {"reach": 9, "impact": 9, "confidence": 8, "effort": 4}
+      },
+      {
+        "id": "REQ-003",
+        "text": "Design Interface Definitions with complete method signatures for all layer-to-layer communication",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Protocol definitions include full method signatures with types",
+          "Associated types specified where needed",
+          "Async throws patterns for error propagation",
+          "Documentation comments for each method"
+        ],
+        "source": "research",
+        "rice_score": {"reach": 8, "impact": 9, "confidence": 8, "effort": 4}
+      },
+      {
+        "id": "REQ-004",
+        "text": "Create Data Flow Diagrams showing how audio, transcription, and UI state flow through all layers",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Sequence diagrams for: Start Recording → Audio Capture → Transcription → UI Update",
+          "State transition diagrams for Session lifecycle",
+          "Data flow for Real-time streaming transcription",
+          "Error propagation paths documented"
+        ],
+        "source": "discovery",
+        "rice_score": {"reach": 9, "impact": 8, "confidence": 9, "effort": 3}
+      },
+      {
+        "id": "REQ-005",
+        "text": "Design Dependency Injection Strategy for wiring layers together at runtime",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Composition Root pattern defined for app startup",
+          "Protocol-based injection (no concrete dependencies in upper layers)",
+          "Factory patterns for creating backend implementations",
+          "Test double injection strategy documented"
+        ],
+        "source": "research",
+        "rice_score": {"reach": 8, "impact": 8, "confidence": 7, "effort": 4}
+      },
+      {
+        "id": "REQ-006",
+        "text": "Create Migration Strategy for moving from Big Ball of Mud to clean architecture incrementally",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Phase-by-phase migration plan with milestones",
+          "Strategy for extracting logic from NotesView (3713 lines) into layers",
+          "Strategy for SessionRepository (2147 lines) decomposition",
+          "Backward compatibility maintenance during migration",
+          "Feature flags or branching strategy for safe rollout"
+        ],
+        "source": "discovery",
+        "rice_score": {"reach": 10, "impact": 9, "confidence": 7, "effort": 6}
+      },
+      {
+        "id": "REQ-007",
+        "text": "Design Domain layer entities and value objects for Meeting, Session, Transcript, and Utterance",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Immutable value objects for core domain concepts",
+          "Proper Swift value semantics (Equatable, Hashable, Codable)",
+          "No dependencies on UI or external frameworks",
+          "Domain logic isolated from infrastructure concerns"
+        ],
+        "source": "research",
+        "rice_score": {"reach": 9, "impact": 8, "confidence": 8, "effort": 4}
+      },
+      {
+        "id": "REQ-008",
+        "text": "Create Risk Assessment with technical risks and mitigation strategies",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Performance impact analysis (layer overhead)",
+          "Memory management concerns with Swift 6.2 actors",
+          "Testing strategy for new architecture",
+          "Rollback plan if issues arise during migration"
+        ],
+        "source": "stakeholder",
+        "rice_score": {"reach": 7, "impact": 9, "confidence": 8, "effort": 2}
+      },
+      {
+        "id": "REQ-009",
+        "text": "Design Business Logic layer with Use Cases for key operations (StartSession, GenerateNotes, ExportTranscript)",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "Each use case is a single responsibility class",
+          "Use cases orchestrate domain entities and infrastructure services",
+          "Input/output boundaries defined as protocols",
+          "Async/await patterns for long-running operations"
+        ],
+        "source": "research",
+        "rice_score": {"reach": 7, "impact": 8, "confidence": 7, "effort": 5}
+      },
+      {
+        "id": "REQ-010",
+        "text": "Define Infrastructure layer patterns for Storage, Audio, and AI Services",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "Repository pattern for data persistence",
+          "Service pattern for external APIs (OpenRouter, Voyage, Ollama)",
+          "Audio capture abstraction over SystemAudioCapture and MicCapture",
+          "Backend-specific implementations conform to shared protocols"
+        ],
+        "source": "research",
+        "rice_score": {"reach": 8, "impact": 7, "confidence": 8, "effort": 4}
+      },
+      {
+        "id": "REQ-011",
+        "text": "Document Swift 6.2 Concurrency patterns for thread-safe layer communication",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "Actor isolation strategy for domain layer",
+          "Sendable conformance for data crossing boundaries",
+          "Structured concurrency patterns for use cases",
+          "AsyncSequence usage for streaming transcription"
+        ],
+        "source": "research",
+        "rice_score": {"reach": 6, "impact": 8, "confidence": 7, "effort": 3}
+      },
+      {
+        "id": "REQ-012",
+        "text": "Create Acceptance Criteria for validating the design quality",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "All layers have clear, documented responsibilities",
+          "No circular dependencies between layers",
+          "Domain layer has zero external dependencies",
+          "All public APIs are protocol-based",
+          "Design supports adding new transcription backend without touching UI",
+          "Unit testing is possible for each layer in isolation"
+        ],
+        "source": "stakeholder",
+        "rice_score": {"reach": 8, "impact": 9, "confidence": 9, "effort": 1}
+      }
+    ],
+    "moscow": {
+      "must": ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-007", "REQ-008", "REQ-012"],
+      "should": ["REQ-009", "REQ-010", "REQ-011"],
+      "could": [],
+      "wont": []
+    },
+    "risks": [
+      {
+        "id": "RISK-001",
+        "description": "Migration complexity from 36K lines with massive view controllers could introduce bugs",
+        "likelihood": "H",
+        "impact": "H",
+        "mitigation": "Incremental migration with comprehensive tests at each phase; feature flags for gradual rollout"
+      },
+      {
+        "id": "RISK-002",
+        "description": "Performance overhead from layered architecture affecting real-time transcription",
+        "likelihood": "M",
+        "impact": "H",
+        "mitigation": "Benchmark critical paths during design; maintain zero-copy data flow for audio; profile before/after"
+      },
+      {
+        "id": "RISK-003",
+        "description": "Team learning curve for new architecture patterns may slow development",
+        "likelihood": "M",
+        "impact": "M",
+        "mitigation": "Document extensively; pair programming during transition; provide architecture decision records"
+      },
+      {
+        "id": "RISK-004",
+        "description": "Swift 6.2 strict concurrency may require significant refactoring of existing async code",
+        "likelihood": "H",
+        "impact": "M",
+        "mitigation": "Design with StrictConcurrency=complete in mind; use actors for shared state; review Sendable conformance"
+      },
+      {
+        "id": "RISK-005",
+        "description": "Dependency framework updates (MLX, WhisperKit) may break layer abstractions",
+        "likelihood": "M",
+        "impact": "M",
+        "mitigation": "Adapter pattern for external dependencies; semantic versioning discipline; abstraction layers over direct framework use"
+      }
+    ],
+    "stakeholders": [
+      {
+        "name": "Lead Developer",
+        "influence": "blocker",
+        "concern": "Maintainability and ability to test components in isolation"
+      },
+      {
+        "name": "Product Owner",
+        "influence": "influencer",
+        "concern": "Preserving existing functionality while improving architecture"
+      },
+      {
+        "name": "End Users",
+        "influence": "informed",
+        "concern": "Stability and transcription accuracy must not degrade"
+      },
+      {
+        "name": "Future Contributors",
+        "influence": "influencer",
+        "concern": "Clear code organization and onboarding documentation"
+      },
+      {
+        "name": "MLX/WhisperKit Integration",
+        "influence": "blocker",
+        "concern": "Abstractions must not limit access to framework capabilities"
+      }
+    ],
+    "competitive_signals": [
+      "TCA (The Composable Architecture) provides excellent patterns for SwiftUI state management",
+      "Clean Swift Architecture emphasizes testability through protocol-based design",
+      "Apple's modern concurrency patterns (async/await, actors) should be foundation of layer communication",
+      "Repository pattern widely adopted for data layer abstraction in Swift apps"
+    ],
+    "research_signals": [
+      "Protocol-oriented programming is idiomatic Swift approach for dependency injection",
+      "Actor-based isolation is essential for thread safety in Swift 6.2",
+      "Use Case pattern effectively separates business logic from UI and infrastructure",
+      "Migration from monolithic to layered architecture should be incremental, not big-bang"
+    ],
+    "complexity_signal": "high",
+    "next_recommended": "wfc-plan",
+    "satisfied": true,
+    "gaps": [],
+    "design_deliverables_checklist": {
+      "architecture_design_document": {
+        "status": "required",
+        "description": "Complete 4-layer architecture definition"
+      },
+      "boundary_contracts": {
+        "status": "required",
+        "description": "Protocol definitions for all layer boundaries"
+      },
+      "interface_definitions": {
+        "status": "required",
+        "description": "API signatures between layers"
+      },
+      "data_flow_diagrams": {
+        "status": "required",
+        "description": "Visual representation of data movement"
+      },
+      "dependency_injection_strategy": {
+        "status": "required",
+        "description": "How layers will be wired together"
+      },
+      "migration_strategy": {
+        "status": "required",
+        "description": "Step-by-step migration from current state"
+      },
+      "risk_assessment": {
+        "status": "required",
+        "description": "Technical risks and mitigations"
+      },
+      "acceptance_criteria": {
+        "status": "required",
+        "description": "How to validate design quality"
+      }
+    }
+  }
+}

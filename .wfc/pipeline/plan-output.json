@@ -1,0 +1,26 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-plan",
+  "to_skill": "wfc-architect",
+  "step": "plan",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/plan-output.json",
+    "human_tasks": "TASKS.md",
+    "human_properties": "PROPERTIES.md",
+    "human_test_plan": "TEST-PLAN.md"
+  },
+  "payload": {
+    "plan_dir": ".wfc/plans/plan_3tier-architecture-design_20260501_140223",
+    "task_count": 14,
+    "property_count": 8,
+    "validation_status": "passed",
+    "complexity": "high",
+    "waves": 4,
+    "canary_task": "TASK-001",
+    "critical_path": "TASK-001 → TASK-006 → TASK-007 → TASK-012",
+    "recommended_next_skill": "wfc-architect"
+  }
+}

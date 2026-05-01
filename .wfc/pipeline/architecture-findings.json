@@ -1,0 +1,554 @@
+{
+  "analysis_metadata": {
+    "plan_id": "plan_3tier-architecture-design_20260501_140223",
+    "analysis_date": "2026-05-01",
+    "analyzed_by": "wfc-architecture-subagent",
+    "tasks_analyzed": 14,
+    "waves_analyzed": 4
+  },
+  "architecture_summary": {
+    "pattern": "Clean Architecture (3-tier with Presentation)",
+    "layer_structure": {
+      "presentation": {
+        "components": ["SessionViewModel", "TranscriptViewModel", "SettingsViewModel", "CoordinatorProtocol"],
+        "responsibility": "UI state management and navigation",
+        "concurrency": "@MainActor for all UI-bound properties"
+      },
+      "business_logic": {
+        "components": ["StartSessionUseCase", "StopSessionUseCase", "GenerateNotesUseCase", "ExportTranscriptUseCase", "ImportAudioUseCase", "SwitchBackendUseCase"],
+        "responsibility": "Orchestrate domain operations and coordinate infrastructure services",
+        "concurrency": "Structured concurrency with cancellable operations"
+      },
+      "domain": {
+        "entities": ["Meeting", "Session", "Transcript", "Utterance", "Speaker", "Note", "AudioSegment"],
+        "identifiers": ["MeetingID", "SessionID", "SpeakerID", "TranscriptID", "BackendID"],
+        "errors": ["TranscriptionError", "StorageError", "ValidationError", "NetworkError", "AudioError"],
+        "responsibility": "Pure business logic with value semantics",
+        "constraints": "Zero external dependencies, immutable structs only, Sendable-safe"
+      },
+      "infrastructure": {
+        "services": {
+          "transcription": ["TranscriptionService", "StreamingTranscriptionService", "BatchTranscriptionService"],
+          "audio": ["AudioCaptureService", "AudioFormatService"],
+          "storage": ["SessionRepository", "TranscriptRepository", "SettingsRepository"],
+          "ai": ["LLMService", "EmbeddingService", "SuggestionService"]
+        },
+        "responsibility": "External concerns (MLX, WhisperKit, AssemblyAI, CoreData, APIs)",
+        "concurrency": "Background actors, Sendable-safe"
+      }
+    },
+    "dependency_rule": "Dependencies flow inward only: Presentation → Business → Domain ← Infrastructure",
+    "dependency_injection": {
+      "pattern": "Protocol-based DI with composition root",
+      "components": ["AppContainer", "ServiceFactory", "ViewModelFactory", "UseCaseFactory"],
+      "lifecycle": "Singleton vs transient defined per service"
+    }
+  },
+  "coupling_cohesion_assessment": {
+    "overall_score": "B+",
+    "strengths": [
+      {
+        "aspect": "Domain Layer Purity",
+        "rating": "EXCELLENT",
+        "details": "Zero external framework dependencies; only Foundation imports. Immutable value types with strong ID typing prevent accidental mixing."
+      },
+      {
+        "aspect": "Protocol Abstraction",
+        "rating": "EXCELLENT",
+        "details": "All layer boundaries use protocols. Infrastructure implementations are swappable (MLX ↔ WhisperKit ↔ AssemblyAI)."
+      },
+      {
+        "aspect": "Error Taxonomy",
+        "rating": "GOOD",
+        "details": "Hierarchical error types with associated values enable precise handling and debugging context."
+      },
+      {
+        "aspect": "Concurrency Boundaries",
+        "rating": "GOOD",
+        "details": "Clear actor strategy: @MainActor for UI, custom actors for domain state (TranscriptionActor, SessionActor)."
+      }
+    ],
+    "concerns": [
+      {
+        "aspect": "Repository Scope",
+        "rating": "MEDIUM_RISK",
+        "details": "SessionRepository (2.1K lines to be split) suggests current high coupling. Migration must decompose into SessionRepository, TranscriptRepository, SettingsRepository."
+      },
+      {
+        "aspect": "ViewModel Complexity",
+        "rating": "MEDIUM_RISK",
+        "details": "NotesView (3.7K lines) migration to use cases requires careful decomposition to avoid just moving the bloat."
+      },
+      {
+        "aspect": "Backend Abstraction Depth",
+        "rating": "LOW_RISK",
+        "details": "Three-level protocol hierarchy (TranscriptionService → Streaming/Batch → Concrete) adds complexity but necessary for multi-provider support."
+      },
+      {
+        "aspect": "DI Container Complexity",
+        "rating": "LOW_RISK",
+        "details": "Four factory types (Service, ViewModel, UseCase, AppContainer) may be over-engineered; consider simplifying to 2-3 factories."
+      }
+    ],
+    "metrics_targets": {
+      "high_fan_out_functions": {
+        "description": "Functions calling >8 other functions (SRP violation)",
+        "current_concern": "NotesView likely has god functions",
+        "target": 0,
+        "measurement": "SQL query on call graph"
+      },
+      "high_blast_radius": {
+        "description": "Symbols with >10 dependents (coupling risk)",
+        "current_concern": "SessionRepository has high blast radius",
+        "target": 0,
+        "measurement": "SQL query on dependency graph"
+      },
+      "circular_dependencies": {
+        "description": "Import cycles between layers",
+        "target": 0,
+        "measurement": "SQL query on import graph"
+      },
+      "large_classes": {
+        "description": "Classes with >15 methods (SRP violation)",
+        "current_concern": "NotesView, SessionRepository are god classes",
+        "target": 0,
+        "measurement": "SQL query on class methods"
+      }
+    }
+  },
+  "integration_points_requiring_contracts": [
+    {
+      "id": "INT-001",
+      "name": "TranscriptionService → Backend Implementations",
+      "layers": "Infrastructure",
+      "contract_type": "Protocol Hierarchy",
+      "specification": {
+        "base_protocol": "TranscriptionService",
+        "streaming": "StreamingTranscriptionService with AsyncStream<TranscriptionSegment>",
+        "batch": "BatchTranscriptionService with async throws",
+        "implementations": ["MLXStreamingTranscriptionService", "WhisperKitStreamingTranscriptionService", "AssemblyAIStreamingTranscriptionService", "MLXBatchTranscriptionService", "WhisperKitBatchTranscriptionService", "ParakeetBatchTranscriptionService"]
+      },
+      "critical_contracts": [
+        "Error mapping from backend-specific to domain errors",
+        "Configuration isolation (MLXConfiguration vs WhisperKitConfiguration)",
+        "Resource cleanup on cancellation",
+        "Backend switching without data loss"
+      ],
+      "validation_method": "Prototype validation with mock implementations (TC-006)"
+    },
+    {
+      "id": "INT-002",
+      "name": "UseCase → Infrastructure Services",
+      "layers": "Business → Infrastructure",
+      "contract_type": "Protocol Dependency",
+      "specification": {
+        "start_session_use_case": "depends on AudioCaptureService, TranscriptionService",
+        "generate_notes_use_case": "depends on LLMService, TranscriptRepository",
+        "export_transcript_use_case": "depends on TranscriptRepository, AudioFormatService"
+      },
+      "critical_contracts": [
+        "Transactional consistency across multiple services",
+        "Cancellable long-running operations",
+        "Error aggregation from multiple service failures"
+      ],
+      "validation_method": "DI prototype validation (TC-007)"
+    },
+    {
+      "id": "INT-003",
+      "name": "ViewModel → UseCase",
+      "layers": "Presentation → Business",
+      "contract_type": "Async Protocol Methods",
+      "specification": {
+        "pattern": "ViewModel calls useCase.execute(input:) async throws",
+        "state_management": "ObservableObject/@Observable with @MainActor",
+        "example": "func startRecording() async throws -> SessionID"
+      },
+      "critical_contracts": [
+        "All async operations return within 100ms to UI",
+        "No direct I/O in ViewModels",
+        "Error propagation to UI for user notification"
+      ],
+      "validation_method": "Data flow walkthrough (TC-004)"
+    },
+    {
+      "id": "INT-004",
+      "name": "Repository → Storage Implementation",
+      "layers": "Infrastructure",
+      "contract_type": "Repository Pattern",
+      "specification": {
+        "repositories": ["SessionRepository", "TranscriptRepository", "SettingsRepository"],
+        "persistence": "CoreData/SwiftData or file-based storage",
+        "migration": "Backward compatibility with existing data"
+      },
+      "critical_contracts": [
+        "Session persistence within 2 seconds of completion (LIVENESS-004)",
+        "Data recovery after crash",
+        "Migration from 2.1K line monolith to split repositories"
+      ],
+      "validation_method": "Crash recovery tests, migration phase validation (TC-005)"
+    },
+    {
+      "id": "INT-005",
+      "name": "AudioCapture → TranscriptionService Streaming",
+      "layers": "Infrastructure internal",
+      "contract_type": "AsyncStream Protocol",
+      "specification": {
+        "audio_stream": "AsyncStream<AudioBuffer>",
+        "transcription_stream": "AsyncThrowingStream<TranscriptionSegment, Error>",
+        "latency_budget": "< 500ms end-to-end (PERF-001)"
+      },
+      "critical_contracts": [
+        "Audio latency < 500ms for real-time",
+        "Proper buffer management to prevent memory leaks",
+        "Cancellation propagation between audio capture and transcription"
+      ],
+      "validation_method": "Latency benchmarking, memory profiling"
+    },
+    {
+      "id": "INT-006",
+      "name": "Domain Error → UI Presentation",
+      "layers": "Domain → Business → Presentation",
+      "contract_type": "Error Mapping Chain",
+      "specification": {
+        "infrastructure_errors": "Backend-specific errors (MLXError, NetworkError)",
+        "mapping": "map to domain errors (TranscriptionError, StorageError)",
+        "presentation": "LocalizedError for user-friendly messages"
+      },
+      "critical_contracts": [
+        "Every infrastructure error has domain mapping (INVARIANT-004)",
+        "All error paths are exhaustively handled (SAFETY-005)",
+        "Recoverable vs non-recoverable error classification"
+      ],
+      "validation_method": "Error handling coverage review (TC-009)"
+    }
+  ],
+  "clean_architecture_alignment": {
+    "overall_alignment": "STRONG",
+    "principle_compliance": [
+      {
+        "principle": "Dependency Rule",
+        "compliance": "FULL",
+        "evidence": "Dependencies flow inward only; Domain has zero external dependencies",
+        "notes": "Proper use of protocol-based abstraction"
+      },
+      {
+        "principle": "Single Responsibility",
+        "compliance": "PARTIAL",
+        "evidence": "Use cases are single-purpose; repositories being split",
+        "notes": "Current SessionRepository (2.1K lines) violates SRP; migration addresses this"
+      },
+      {
+        "principle": "Open/Closed",
+        "compliance": "FULL",
+        "evidence": "Backend abstraction allows adding new transcription providers without UI changes",
+        "notes": "TranscriptionService protocol hierarchy enables extension"
+      },
+      {
+        "principle": "Interface Segregation",
+        "compliance": "GOOD",
+        "evidence": "Separate protocols for Streaming vs Batch transcription",
+        "notes": "ViewModels don't depend on unnecessary infrastructure details"
+      },
+      {
+        "principle": "Domain Isolation",
+        "compliance": "FULL",
+        "evidence": "Domain layer has no SwiftUI, Combine, MLX, or WhisperKit dependencies",
+        "notes": "Entities are pure Swift structs with Foundation only"
+      }
+    ]
+  },
+  "risks_identified": [
+    {
+      "id": "RISK-001",
+      "severity": "HIGH",
+      "category": "Migration Complexity",
+      "title": "36K Line Codebase Migration Over 9 Weeks",
+      "description": "Migrating from 'Big Ball of Mud' (36K lines) to Clean Architecture over 9 weeks with 5 phases. NotesView (3.7K lines) and SessionRepository (2.1K lines) are god objects requiring careful decomposition.",
+      "probability": "HIGH",
+      "impact": "HIGH",
+      "mitigation_plan": "From TASK-008: Phased migration with feature flags, rollback plans per phase, parallel old/new code during transition",
+      "trigger_condition": "Any phase exceeding 1 week without checkpoint, or >5 files touched simultaneously",
+      "owner": "TASK-008"
+    },
+    {
+      "id": "RISK-002",
+      "severity": "HIGH",
+      "category": "Swift 6.2 Concurrency",
+      "title": "Strict Concurrency Compliance",
+      "description": "Swift 6.2 StrictConcurrency requires all cross-actor types to be Sendable. 36K lines of legacy code likely has data races that will become compile errors.",
+      "probability": "HIGH",
+      "impact": "HIGH",
+      "mitigation_plan": "From TASK-011: Sendable-safe design from start; use actors for shared state; compile with -strict-concurrency=complete",
+      "trigger_condition": "Compiler errors >100 during migration",
+      "owner": "TASK-011"
+    },
+    {
+      "id": "RISK-003",
+      "severity": "MEDIUM",
+      "category": "Backend Abstraction",
+      "title": "Multi-Provider Transcription Complexity",
+      "description": "Supporting MLX, WhisperKit, AssemblyAI, Parakeet with different capabilities (streaming vs batch) requires complex protocol hierarchy and error mapping.",
+      "probability": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation_plan": "From TASK-010: Adapter pattern for framework isolation; comprehensive error mapping; factory for backend instantiation",
+      "trigger_condition": "Backend switching causes data loss or crashes",
+      "owner": "TASK-010"
+    },
+    {
+      "id": "RISK-004",
+      "severity": "MEDIUM",
+      "category": "Performance",
+      "title": "Layer Abstraction Overhead",
+      "description": "Clean architecture adds indirection. Budget of 5% overhead (PERF-003) may be challenging with protocol dispatch and actor hopping.",
+      "probability": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation_plan": "From PERF-003: Prototype validation; hot path optimization; benchmark comparison of layered vs direct",
+      "trigger_condition": "Latency exceeds 500ms or overhead >5% in benchmarks",
+      "owner": "TASK-011, TC-010"
+    },
+    {
+      "id": "RISK-005",
+      "severity": "MEDIUM",
+      "category": "Dependency Injection",
+      "title": "DI Container Complexity",
+      "description": "Four factory types may lead to over-engineering and runtime dependency resolution errors.",
+      "probability": "LOW",
+      "impact": "MEDIUM",
+      "mitigation_plan": "From TASK-007: Composition root resolves all at startup; explicit lifecycle management; compile-time circular dependency detection",
+      "trigger_condition": "Circular dependency runtime errors or difficult test configuration",
+      "owner": "TASK-007"
+    },
+    {
+      "id": "RISK-006",
+      "severity": "LOW",
+      "category": "Repository Split",
+      "title": "SessionRepository Decomposition",
+      "description": "Splitting 2.1K line SessionRepository into focused repositories requires maintaining backward compatibility during migration.",
+      "probability": "MEDIUM",
+      "impact": "LOW",
+      "mitigation_plan": "From TASK-008: Feature flag to use old repo; integration tests for both paths; gradual cutover",
+      "trigger_condition": "Data loss or corruption during repository split",
+      "owner": "TASK-008"
+    },
+    {
+      "id": "RISK-007",
+      "severity": "LOW",
+      "category": "AST Metrics",
+      "title": "Baseline Measurement and Tooling",
+      "description": "AST analysis requires eedom/gitnexus setup. Without baseline metrics, cannot verify improvement targets.",
+      "probability": "MEDIUM",
+      "impact": "LOW",
+      "mitigation_plan": "From TC-011: Index codebase before migration; document baseline; run queries at each phase; OpenGrep for quick validation",
+      "trigger_condition": "Cannot measure hotpoint metrics during migration",
+      "owner": "TC-011"
+    }
+  ],
+  "anti_patterns_detected": [
+    {
+      "pattern": "God Class",
+      "severity": "HIGH",
+      "location": "Current codebase: NotesView (3.7K lines), SessionRepository (2.1K lines)",
+      "description": "Massive classes violating Single Responsibility Principle",
+      "resolution": "TASK-008 decomposition into use cases and focused repositories",
+      "status": "ADDRESSED_IN_DESIGN"
+    },
+    {
+      "pattern": "Big Ball of Mud",
+      "severity": "HIGH",
+      "location": "Current 36K line codebase",
+      "description": "No discernible architecture; tangled dependencies",
+      "resolution": "Full 3-tier architecture migration plan (TASK-008)",
+      "status": "ADDRESSED_IN_DESIGN"
+    },
+    {
+      "pattern": "Dependency Inversion Violation (Risk)",
+      "severity": "MEDIUM",
+      "location": "Potential in DI container design",
+      "description": "Four factory types may create complex dependency graphs",
+      "resolution": "Simplify to 2-3 factories; compile-time cycle detection",
+      "status": "MONITOR"
+    },
+    {
+      "pattern": "Leaky Abstraction (Risk)",
+      "severity": "LOW",
+      "location": "Backend configuration hierarchy",
+      "description": "Three-level protocol hierarchy may expose backend details",
+      "resolution": "Strict error mapping; configuration isolation per backend",
+      "status": "MONITOR"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "CRITICAL",
+      "category": "Migration Strategy",
+      "recommendation": "Simplify 5-phase migration to 3 phases: (1) Domain + Infrastructure, (2) Business Logic, (3) Presentation. Reduces complexity and checkpoint overhead.",
+      "rationale": "9 weeks with 5 phases creates too many transition points. 3 phases of 3 weeks each provides better focus and fewer rollback points.",
+      "affects_tasks": ["TASK-008"]
+    },
+    {
+      "priority": "CRITICAL",
+      "category": "DI Strategy",
+      "recommendation": "Reduce factory types from 4 to 2: ServiceFactory (Infrastructure), CompositionRoot (Business + Presentation). Eliminate ViewModelFactory and UseCaseFactory.",
+      "rationale": "Simpler DI graph reduces cognitive load and potential circular dependencies. UseCase creation is trivial enough for direct instantiation.",
+      "affects_tasks": ["TASK-007"]
+    },
+    {
+      "priority": "HIGH",
+      "category": "Concurrency",
+      "recommendation": "Create Swift 6.2 prototype before migration begins. Compile with -strict-concurrency=complete to identify blocking issues early.",
+      "rationale": "Legacy code likely has concurrency violations. Early prototype prevents migration-blocking compiler errors.",
+      "affects_tasks": ["TASK-011", "TC-003"]
+    },
+    {
+      "priority": "HIGH",
+      "category": "Metrics",
+      "recommendation": "Run AST baseline queries (TC-011) BEFORE design sign-off. Document actual hotpoint counts for NotesView and SessionRepository.",
+      "rationale": "Without baseline, cannot verify improvement. Current estimates ('likely has god functions') need concrete numbers.",
+      "affects_tasks": ["TC-011", "TASK-012"]
+    },
+    {
+      "priority": "HIGH",
+      "category": "Backend Abstraction",
+      "recommendation": "Flatten protocol hierarchy: TranscriptionService with capability flags instead of Streaming/Batch sub-protocols.",
+      "rationale": "Simpler protocol reduces complexity while still supporting all backends. Check capabilities at runtime rather than compile-time.",
+      "affects_tasks": ["TASK-010"]
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "Testing",
+      "recommendation": "Add explicit contract tests for each integration point using Swift protocols + XCTest.",
+      "rationale": "Protocol conformance alone doesn't guarantee behavioral contracts. Explicit tests verify error handling, cancellation, and resource cleanup.",
+      "affects_tasks": ["TEST-PLAN: TC-006, TC-007"]
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "Repository Design",
+      "recommendation": "Consider CQRS pattern for SessionRepository: separate read and write models to reduce complexity.",
+      "rationale": "2.1K lines suggests mixed responsibilities. CQRS separates query optimization from write consistency.",
+      "affects_tasks": ["TASK-006", "TASK-008"]
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "Performance",
+      "recommendation": "Identify 'hot paths' (audio → transcription → UI) and allow direct protocol calls without UseCase indirection for latency-critical operations.",
+      "rationale": "Strict Clean Architecture can add overhead. Hot paths may need pragmatic shortcuts within the abstraction.",
+      "affects_tasks": ["TASK-005", "PERF-003"]
+    },
+    {
+      "priority": "LOW",
+      "category": "Tooling",
+      "recommendation": "Configure OpenGrep rules for layer violations and force unwraps before migration begins.",
+      "rationale": "Early enforcement prevents regression. Standalone OpenGrep is fast for pre-commit hooks.",
+      "affects_tasks": ["TASK-012"]
+    }
+  ],
+  "formal_properties_compliance": {
+    "safety": {
+      "SAFETY-001_No_Circular_Dependencies": {
+        "compliance": "COMPLIANT",
+        "evidence": "Dependency graph defined with inward flow only; SQL validation planned (TC-011)"
+      },
+      "SAFETY-002_Domain_Layer_Isolation": {
+        "compliance": "COMPLIANT",
+        "evidence": "Domain layer restricted to Foundation only; no SwiftUI, MLX, WhisperKit imports"
+      },
+      "SAFETY-003_No_UI_Thread_Blocking": {
+        "compliance": "COMPLIANT",
+        "evidence": "@MainActor for Presentation; async operations in Business/Infrastructure; 16ms budget defined"
+      },
+      "SAFETY-004_Immutable_Domain_State": {
+        "compliance": "COMPLIANT",
+        "evidence": "All entities are structs (not classes); Sendable conformance required"
+      },
+      "SAFETY-005_Exhaustive_Error_Handling": {
+        "compliance": "COMPLIANT",
+        "evidence": "Error taxonomy defined; associated values provide context; no force unwraps in design"
+      },
+      "SAFETY-006_Sendable_Safe_Concurrency": {
+        "compliance": "COMPLIANT",
+        "evidence": "All domain types Sendable; actors for shared state; strict concurrency compile planned"
+      },
+      "SAFETY-007_Backend_Failure_Isolation": {
+        "compliance": "COMPLIANT",
+        "evidence": "Backend abstraction with error mapping; factory pattern for instantiation"
+      }
+    },
+    "liveness": {
+      "LIVENESS-001_UI_Updates_Delivered": {
+        "compliance": "COMPLIANT",
+        "evidence": "ObservableObject/@Observable patterns; @MainActor annotations; 100ms target"
+      },
+      "LIVENESS-002_Transcription_Progress": {
+        "compliance": "COMPLIANT",
+        "evidence": "AsyncStream for segments; 5-second emission target during active speech"
+      },
+      "LIVENESS-003_Resource_Cleanup": {
+        "compliance": "COMPLIANT",
+        "evidence": "Cancellation propagation defined; 1-second cleanup target"
+      },
+      "LIVENESS-004_Session_Persistence": {
+        "compliance": "COMPLIANT",
+        "evidence": "Repository pattern; 2-second persistence target after session completion"
+      },
+      "LIVENESS-005_Cancellation_Responsiveness": {
+        "compliance": "COMPLIANT",
+        "evidence": "Task cancellation designed into protocols; 500ms response target"
+      }
+    },
+    "invariant": {
+      "INVARIANT-001_Unidirectional_Data_Flow": {
+        "compliance": "COMPLIANT",
+        "evidence": "Presentation → Business → Infrastructure; diagrams verify no callbacks upward"
+      },
+      "INVARIANT-002_Protocol_Based_APIs": {
+        "compliance": "COMPLIANT",
+        "evidence": "All layer boundaries use protocols; concrete types only in DI/tests"
+      },
+      "INVARIANT-003_Layer_Appropriate_Concurrency": {
+        "compliance": "COMPLIANT",
+        "evidence": "MainActor (Presentation), structured concurrency (Business), actors (Infrastructure)"
+      },
+      "INVARIANT-004_Complete_Error_Propagation": {
+        "compliance": "COMPLIANT",
+        "evidence": "Error mapping from Infrastructure → Domain → Presentation defined"
+      },
+      "INVARIANT-005_Backend_Config_Isolation": {
+        "compliance": "COMPLIANT",
+        "evidence": "Separate configuration structs per backend; no shared mutable state"
+      },
+      "INVARIANT-006_Domain_ID_Uniqueness": {
+        "compliance": "COMPLIANT",
+        "evidence": "UUID-based strong types; RawRepresentable prevents accidental mixing"
+      },
+      "INVARIANT-007_Backward_Compatibility": {
+        "compliance": "COMPLIANT",
+        "evidence": "5-phase migration with feature flags; rollback plans per phase"
+      }
+    }
+  },
+  "exit_assessment": {
+    "design_ready_for_implementation": "CONDITIONAL",
+    "conditions": [
+      "Run AST baseline queries (TC-011) before sign-off - currently just estimated",
+      "Create Swift 6.2 concurrency prototype (TC-003) to validate strict mode",
+      "Simplify DI factories from 4 to 2 as recommended",
+      "Flatten backend protocol hierarchy as recommended"
+    ],
+    "strengths": [
+      "Excellent domain layer purity and isolation",
+      "Strong protocol-based abstraction throughout",
+      "Comprehensive error taxonomy and handling",
+      "Well-defined concurrency strategy with actors",
+      "Thorough migration plan with risk mitigation",
+      "Complete test plan with AST metrics"
+    ],
+    "blockers": [],
+    "warnings": [
+      "9-week migration is aggressive for 36K lines; consider 12-week timeline",
+      "Four factory types in DI may be over-engineered",
+      "Three-level protocol hierarchy adds complexity",
+      "Baseline metrics not yet captured"
+    ],
+    "overall_recommendation": "APPROVE_WITH_MODIFICATIONS - Address HIGH priority recommendations before implementation begins. Design is sound but can be simplified."
+  }
+}

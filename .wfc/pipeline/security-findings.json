@@ -1,0 +1,76 @@
+{
+  "findings": [
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Settings/AppSecretStore.swift",
+      "line": 8,
+      "description": "Inconsistent Keychain service identifier: AppSecretStore uses 'com.opengranola.app' but SettingsStorage uses 'com.openoats.app'. This causes secrets stored by one to be inaccessible by the other, leading to apparent data loss or duplicate credential storage.",
+      "recommendation": "Unify to use 'com.openoats.app' as the canonical service identifier. AppSecretStore must be updated to match SettingsStorage's service string. Ensure migration logic exists for keys stored under old service."
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStorage.swift",
+      "line": 52,
+      "description": "KeychainHelper.save() ignores SecItemAdd result status. Silent failures could occur when keychain is locked or access is denied, with no error handling or logging.",
+      "recommendation": "Add OSStatus result checking to KeychainHelper.save(), saveIfMissing(), and delete() methods. Log errors using os_log with .public privacy level for status codes, never for values."
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
+      "line": 38,
+      "description": "@ObservationIgnored nonisolated(unsafe) used on 143+ private vars. While necessary for @Observable conformance with Observation framework, the 'nonisolated(unsafe)' annotation bypasses Swift 6 concurrency safety checks for backing storage. This is acceptable only because the class is @MainActor-isolated and @Observable manages access/mutation through generated accessors.",
+      "recommendation": "Add documentation comment explaining why nonisolated(unsafe) is safe here (class is @MainActor, @Observable generates thread-safe accessors). Consider auditing all secret properties to ensure lazy-loading is thread-safe."
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
+      "line": 16,
+      "description": "loadSecretIfNeeded() has potential race condition: the check-and-set pattern (!loadedSecretKeys.contains + load + insert) is not atomic. Two concurrent accesses could both trigger keychain load, though @MainActor isolation makes this unlikely in practice.",
+      "recommendation": "Consider wrapping the lazy-loading check in a lock or using actor-isolated state to guarantee atomicity. Document thread safety assumptions since this runs on @MainActor."
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStorage.swift",
+      "line": 47,
+      "description": "typealias AppSettingsStorage = SettingsStorage provides backward compatibility but creates two names for the same type. This could lead to confusion in API contracts and potential misuse if internal properties are exposed.",
+      "recommendation": "The typealias is appropriate for backward compatibility. Add deprecation annotation (@available(*, deprecated, renamed: 'SettingsStorage')) to guide migration toward the canonical name."
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Settings/AppSecretStore.swift",
+      "line": 33,
+      "description": "save() method does not trim input value before storage. Whitespace in API keys could cause authentication failures that are hard to debug.",
+      "recommendation": "Add trimming of whitespace and newlines before saving secrets, consistent with SettingsStore's pattern of trimming API keys."
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
+      "line": 14,
+      "description": "loadedSecretKeys is @ObservationIgnored but not explicitly Sendable-isolated. Since it's a Set<String> on a @MainActor class, access should be safe, but the pattern could be misunderstood.",
+      "recommendation": "Document that loadedSecretKeys is implicitly isolated to @MainActor via the containing class. Consider making it explicitly nonisolated(unsafe) for clarity if needed."
+    },
+    {
+      "severity": "INFO",
+      "file": "OpenOats/Sources/OpenOats/Settings/AppSettings.swift",
+      "line": 318,
+      "description": "Duplicate KeychainHelper definition exists in AppSettings.swift (com.opengranola.app service) alongside SettingsStorage.swift (com.openoats.app service). Both have similar functionality but different service strings. This is used for backward compatibility during migration but could cause maintenance issues.",
+      "recommendation": "Consider consolidating to a single KeychainHelper utility in SettingsStorage.swift and having AppSettings use that instead of its own duplicate. Document the migration path clearly."
+    },
+    {
+      "severity": "INFO",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
+      "line": 1135,
+      "description": "SettingsStore init accepts SettingsStorage parameter which defaults to .live(). This convenience init pattern properly supports dependency injection for testing while defaulting to production values.",
+      "recommendation": "No action needed. The convenience init pattern is appropriate and doesn't bypass security checks."
+    },
+    {
+      "severity": "INFO",
+      "file": "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift",
+      "line": 1650,
+      "description": "migrateKeychainServiceIfNeeded() properly migrates secrets from old 'com.opengranola.app' service to new 'com.openoats.app' service. This is the correct approach for handling the service identifier change.",
+      "recommendation": "No action needed. Migration logic exists and is properly implemented with saveIfMissing semantics."
+    }
+  ],
+  "high_critical_count": 2,
+  "scan_complete": true
+}

@@ -1,0 +1,141 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-architect",
+  "to_skill": "wfc-pm",
+  "step": "architecture-gate",
+  "status": "partial",
+  "handoff_ready": false,
+  "escalation": {"level": "warn", "reason": "Design approved with modifications required before implementation", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/architect-output.json",
+    "architecture_findings": ".wfc/pipeline/architecture-findings.json",
+    "research_findings": ".wfc/pipeline/research-findings.json"
+  },
+  "payload": {
+    "plan_ref": ".wfc/pipeline/plan-output.json",
+    "adr_inventory": [
+      {
+        "decision": "Consolidate AppSettings and SettingsStore",
+        "adr_path": "docs/adr/001-consolidate-appsettings-settingsstore.md",
+        "status": "covered",
+        "written_this_run": false
+      },
+      {
+        "decision": "Adopt 3-tier Clean Architecture",
+        "adr_path": "docs/adr/002-adopt-3tier-clean-architecture.md",
+        "status": "new",
+        "written_this_run": true
+      },
+      {
+        "decision": "Protocol-Based Dependency Injection",
+        "adr_path": "docs/adr/003-protocol-based-dependency-injection.md",
+        "status": "new",
+        "written_this_run": true
+      },
+      {
+        "decision": "Swift 6.2 StrictConcurrency Strategy",
+        "adr_path": "docs/adr/004-swift-6.2-strict-concurrency.md",
+        "status": "new",
+        "written_this_run": true
+      },
+      {
+        "decision": "Multi-Backend Transcription Abstraction",
+        "adr_path": "docs/adr/005-multi-backend-transcription-abstraction.md",
+        "status": "new",
+        "written_this_run": true
+      }
+    ],
+    "architecture_summary": "3-tier Clean Architecture with Domain/Business/Infrastructure/Presentation layers. Protocol-based DI enables multiple transcription backends. Swift 6.2 concurrency with Sendable-safe design. Migration from 36K line monolith over 9 weeks.",
+    "open_gaps": [
+      {
+        "gap_id": "GAP-001",
+        "rule": "Pre-implementation validation required",
+        "description": "Run AST baseline queries (TC-011) before design sign-off to document actual hotpoint counts",
+        "severity": "HIGH",
+        "resolution": "Execute SQL queries on current codebase before implementation begins"
+      },
+      {
+        "gap_id": "GAP-002",
+        "rule": "Prototype validation required",
+        "description": "Create Swift 6.2 concurrency prototype (TC-003) to identify blocking compiler issues early",
+        "severity": "HIGH",
+        "resolution": "Build throwaway prototype with strict concurrency before migration"
+      },
+      {
+        "gap_id": "GAP-003",
+        "rule": "Design simplification recommended",
+        "description": "Simplify DI factories from 4 to 2 as recommended by architecture analysis",
+        "severity": "MEDIUM",
+        "resolution": "Update TASK-007 to use ServiceFactory + CompositionRoot only"
+      },
+      {
+        "gap_id": "GAP-004",
+        "rule": "Protocol hierarchy simplification",
+        "description": "Flatten backend protocol hierarchy per architect recommendation",
+        "severity": "MEDIUM",
+        "resolution": "Update TASK-010 to use TranscriptionService with capability flags instead of Streaming/Batch sub-protocols"
+      }
+    ],
+    "validation_required": true,
+    "validation_artifact_path": ".wfc/pipeline/validate-output.json",
+    "exit_assessment": {
+      "design_ready_for_implementation": "CONDITIONAL",
+      "conditions": [
+        "Run AST baseline queries (TC-011) before sign-off",
+        "Create Swift 6.2 concurrency prototype (TC-003)",
+        "Simplify DI factories from 4 to 2",
+        "Flatten backend protocol hierarchy"
+      ],
+      "strengths": [
+        "Excellent domain layer purity and isolation",
+        "Strong protocol-based abstraction throughout",
+        "Comprehensive error taxonomy and handling",
+        "Well-defined concurrency strategy with actors",
+        "Thorough migration plan with risk mitigation",
+        "Complete test plan with AST metrics"
+      ],
+      "blockers": [],
+      "warnings": [
+        "9-week migration is aggressive for 36K lines; consider 12-week timeline",
+        "Four factory types in DI may be over-engineered",
+        "Three-level protocol hierarchy adds complexity",
+        "Baseline metrics not yet captured"
+      ],
+      "overall_recommendation": "APPROVE_WITH_MODIFICATIONS - Address HIGH priority gaps before implementation begins. Design is sound but can be simplified."
+    },
+    "risks_summary": {
+      "high": [
+        "RISK-001: 36K line migration over 9 weeks",
+        "RISK-002: Swift 6.2 StrictConcurrency compliance"
+      ],
+      "medium": [
+        "RISK-003: Multi-provider backend complexity",
+        "RISK-004: Layer abstraction overhead",
+        "RISK-005: DI container complexity"
+      ],
+      "low": [
+        "RISK-006: SessionRepository decomposition",
+        "RISK-007: AST metrics baseline measurement"
+      ]
+    },
+    "recommendations_priority": {
+      "critical": [
+        "Simplify 5-phase migration to 3 phases",
+        "Reduce DI factories from 4 to 2"
+      ],
+      "high": [
+        "Create Swift 6.2 prototype before migration",
+        "Run AST baseline queries before sign-off",
+        "Flatten backend protocol hierarchy"
+      ],
+      "medium": [
+        "Add contract tests for integration points",
+        "Consider CQRS for SessionRepository",
+        "Identify hot paths for optimization"
+      ],
+      "low": [
+        "Configure OpenGrep rules before migration"
+      ]
+    }
+  }
+}

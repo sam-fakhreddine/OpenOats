@@ -1,0 +1,56 @@
+{
+  "findings": [
+    {
+      "topic": "Swift @Observable macro patterns and Bindable usage",
+      "insight": "The @Observable macro transforms classes to track all stored properties automatically without @Published annotations. For views, use @Bindable only when you need bindings (e.g., TextField), use plain properties when just reading values, and use @State when the view owns the model. The @Bindable wrapper is lightweight and only enables $ syntax for creating bindings. This is fundamentally different from @ObservedObject which was required for all uses of ObservableObject.",
+      "source": "SE-0395 Observability proposal, WWDC23 'Discover Observation in SwiftUI'"
+    },
+    {
+      "topic": "Common patterns for AppSettings/Configuration classes in SwiftUI",
+      "insight": "AppSettings classes should use @Observable macro and be instantiated at app level (typically in @main or scene), then passed to views. Use plain properties for read-only access, @Bindable for editable forms, or @Environment for global/shared access. All stored properties in @Observable classes must have default values. The macro transforms stored properties into computed properties backed by underscored storage and an ObservationRegistrar for tracking.",
+      "source": "SE-0400 Init Accessors proposal, SE-0395 macro expansion details"
+    },
+    {
+      "topic": "Migrating from ObservableObject to @Observable architecture",
+      "insight": "Migration steps: (1) Remove ObservableObject conformance, (2) Remove @Published from all properties, (3) Add @Observable macro to class, (4) In views, change @ObservedObject to plain property or @Bindable (if bindings needed), (5) Change @EnvironmentObject to @Environment. No property wrapper is needed for read-only observation. The macro generates access(keyPath:) and withMutation(keyPath:) calls automatically for stored properties.",
+      "source": "WWDC23 'Discover Observation in SwiftUI' session, Apple official migration guidance"
+    },
+    {
+      "topic": "Swift 6 concurrency compatibility with @Observable",
+      "insight": "The ObservationRegistrar is Sendable and @Observable types can conform to Sendable. For strict concurrency checking in Swift 6, mark UI-bound models with @MainActor. Use @preconcurrency on imports for incremental migration when depending on modules without concurrency annotations. The @Observable macro does not conflict with strict concurrency checking and works well with actor isolation.",
+      "source": "SE-0337 Incremental Migration to Concurrency Checking proposal"
+    },
+    {
+      "topic": "Handling missing properties on @Observable types causing compilation errors",
+      "insight": "When views reference properties that don't exist on @Observable types (like meetingAutoDetectEnabled, notesFolders, meetingFamilyPreferences, meetingHistoryAliasesByKey, canonicalMeetingHistoryKey, setMeetingFamilyFolderPreference), the fix is to: (1) Add the property to the @Observable class with a default value, or (2) Remove the view's reference if the feature is deprecated. The @Observable macro requires all stored properties have initial values. Computed properties that depend on tracked stored properties are automatically observed.",
+      "source": "SE-0395 @Observable macro requirements, SE-0400 init accessor patterns"
+    },
+    {
+      "topic": "Property wrapper decision tree for @Observable models",
+      "insight": "Apple's official recommendation for using @Observable models in SwiftUI: (1) Does the view own the model (created in init)? Use @State. (2) Is it global/shared across many views? Use @Environment. (3) Does the view only need to create bindings to edit properties? Use @Bindable. (4) Otherwise (read-only access), use plain property with no wrapper. Most views using @Observable models just need the model as a plain property.",
+      "source": "WWDC23 'Discover Observation in SwiftUI' - SwiftUI property wrappers section"
+    },
+    {
+      "topic": "Computed properties and external storage with @Observable",
+      "insight": "For computed properties that derive from stored properties, observation works automatically via property access tracking. For computed properties with external storage (UserDefaults, database, etc.), manually call access(keyPath:) in the getter and withMutation(keyPath:) in the setter. Use @ObservationIgnored on stored properties that should not participate in observation tracking.",
+      "source": "SE-0395 section on @ObservationTracked and @ObservationIgnored macros"
+    }
+  ],
+  "recommendations": [
+    "Add the missing properties to AppSettings class: meetingAutoDetectEnabled (Bool), notesFolders ([String]), meetingFamilyPreferences ([String: String]), meetingHistoryAliasesByKey ([String: String]), canonicalMeetingHistoryKey (String?), setMeetingFamilyFolderPreference(method)",
+    "Ensure all stored properties in AppSettings have default values to satisfy @Observable macro requirements - this enables implicit memberwise initializer generation",
+    "For views using @Bindable<AppSettings>, verify AppSettings is already @Observable - no @ObservedObject needed, just plain property or @Bindable for bindings",
+    "Mark AppSettings with @MainActor if it's accessed from UI views to satisfy Swift 6 strict concurrency checking",
+    "Use @preconcurrency import for any dependencies that haven't adopted Swift 6 concurrency annotations yet",
+    "After fixing missing properties, remove any @ObservedObject annotations from views using AppSettings - @Observable types don't require property wrappers for read-only observation",
+    "For editable settings views, use @Bindable var settings: AppSettings and access bindings via $settings.propertyName"
+  ],
+  "risks": [
+    "The @Observable macro requires Swift 5.9+ - verify minimum deployment target compatibility before migration",
+    "If mlx-audio feature relies on specific ObservableObject behaviors (like objectWillChange publisher), those need to be refactored to work with @Observable's different observation mechanism",
+    "Adding new properties to AppSettings may break existing serialization (UserDefaults, plist) if the class uses Codable - verify backward compatibility or implement migration",
+    "Swift 6 strict concurrency checking may surface additional Sendable conformance warnings on @Observable types that weren't present in Swift 5.x",
+    "Views using @ObservedObject with @Observable types will compile but may have unexpected behavior - must remove @ObservedObject and use plain property or @Bindable instead",
+    "The @Observable macro transforms stored properties into computed properties - any code reflecting on stored properties (Mirror, property wrappers) may break"
+  ]
+}
