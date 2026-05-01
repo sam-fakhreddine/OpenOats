@@ -278,228 +278,31 @@ protocol TranscriptionStateMachineProtocol: Actor {
     func canTransition(to state: State) async -> Bool
 }
 
-// MARK: - Concrete Actor Types (To Be Implemented)
+// MARK: - Implementation Status
 
-/// Actor-isolated streaming transcription implementation
+/// ## Actor Implementation Status: ✅ COMPLETE
 ///
-/// This actor will replace `StreamingTranscriber` and provide
-/// safe concurrent access to transcription state.
+/// Full implementations are in their respective source files:
+/// - `StreamingTranscriptionActor`: `Transcription/StreamingTranscriber.swift`
+/// - `MicCaptureActor`: `Audio/MicCapture.swift`
 ///
-/// ## Implementation Checklist
-/// - [ ] Convert mutable fields to actor-isolated
-/// - [ ] Implement StreamingTranscriptionActorProtocol
-/// - [ ] Remove @unchecked Sendable
-/// - [ ] Add proper Sendable conformance
+/// ## Data Race Fixes Summary
 ///
-actor StreamingTranscriptionActor: StreamingTranscriptionActorProtocol {
-    
-    // MARK: - Types
-    
-    typealias TranscriptionSegment = String
-    typealias AudioSegment = [Float]
-    
-    // MARK: - Mutable State (Actor-Isolated)
-    
-    private var converter: AVAudioConverter?
-    private var rateTrackingStartDate: Date?
-    private var rateTrackingTotalFrames: Int64 = 0
-    private var effectiveSampleRate: Double?
-    private var previousContext: String?
-    private var isProcessing: Bool = false
-    private var pendingBuffers: [[Float]] = []
-    
-    // MARK: - Immutable Configuration
-    
-    nonisolated let config: TranscriptionConfiguration
-    nonisolated let backend: any TranscriptionBackend
-    nonisolated let speaker: Speaker  // Uses Speaker from Domain/Utterance.swift
-    nonisolated let maxBufferSize: Int = 1024 * 1024 // 1MB
-    
-    // MARK: - Initialization
-    
-    init(
-        config: TranscriptionConfiguration,
-        backend: any TranscriptionBackend,
-        speaker: Speaker
-    ) {
-        self.config = config
-        self.backend = backend
-        self.speaker = speaker
-    }
-    
-    // MARK: - StreamingTranscriptionActorProtocol
-    
-    func processBuffer(_ segment: AudioSegment) async throws -> TranscriptionSegment? {
-        // Prevent concurrent processing of the same stream
-        guard !isProcessing else {
-            // Queue for later if already processing
-            if pendingBuffers.count < maxBufferSize {
-                pendingBuffers.append(segment)
-            }
-            return nil
-        }
-        
-        isProcessing = true
-        defer { isProcessing = false }
-        
-        // Safe mutation: create converter if needed
-        // Implementation placeholder
-        
-        return try await transcribeSegment(segment)
-    }
-    
-    func updateRateTracking(startDate: Date) async {
-        rateTrackingStartDate = startDate
-    }
-    
-    func getEffectiveSampleRate() async -> Double {
-        return effectiveSampleRate ?? 0.0
-    }
-    
-    func cleanup() async {
-        converter = nil
-        previousContext = nil
-        pendingBuffers.removeAll()
-        isProcessing = false
-    }
-    
-    func getPreviousContext() async -> String? {
-        return previousContext
-    }
-    
-    func setPreviousContext(_ context: String?) async {
-        previousContext = context
-    }
-    
-    // MARK: - Private Helpers
-    
-    private func transcribeSegment(_ samples: [Float]) async throws -> String? {
-        // Implementation placeholder
-        return nil
-    }
-}
-
-/// Actor-isolated microphone capture implementation
+/// ### C1: StreamingTranscriber
+/// - `converter`: AVAudioConverter? - now actor-isolated
+/// - `rateTrackingStartDate`: Date? - now actor-isolated
+/// - `rateTrackingTotalFrames`: Int64 - now actor-isolated
+/// - `effectiveSampleRate`: Double? - now actor-isolated
+/// - `previousContext`: String? - now actor-isolated
 ///
-/// This actor will replace `MicCapture` and provide
-/// safe audio thread bridging.
+/// ### C2: MicCapture
+/// - `tapCallCount`: Now uses OSAllocatedUnfairLock<Int> for atomic access
+/// - Audio thread safely increments counter without data race
+/// - All state uses proper synchronization
 ///
-/// ## Implementation Checklist
-/// - [ ] Convert to actor with OSAllocatedUnfairLock for tap counter
-/// - [ ] Bridge audio thread callbacks to actor
-/// - [ ] Implement MicCaptureActorProtocol
-/// - [ ] Remove @unchecked Sendable
-/// - [ ] Add proper Sendable conformance
-///
-actor MicCaptureActor: MicCaptureActorProtocol {
-    
-    // MARK: - State
-    
-    private var engine: AVAudioEngine?
-    private var isRecording: Bool = false
-    private var streamContinuation: AsyncStream<AVAudioPCMBuffer>.Continuation?
-    
-    /// Atomic counter for tap calls - thread-safe access from audio thread
-    private let tapCounterLock = OSAllocatedUnfairLock<Int>(initialState: 0)
-    
-    /// Audio level - thread-safe
-    private let audioLevelLock = OSAllocatedUnfairLock<Float>(initialState: 0)
-    
-    /// Muted state - thread-safe
-    private let mutedLock = OSAllocatedUnfairLock<Bool>(initialState: false)
-    
-    /// Paused state - thread-safe
-    private let pausedLock = OSAllocatedUnfairLock<Bool>(initialState: false)
-    
-    // MARK: - Initialization
-    
-    init() {}
-    
-    // MARK: - MicCaptureActorProtocol
-    
-    func startRecording() async throws {
-        let engine = AVAudioEngine()
-        
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        
-        // Install tap with callback that bridges to actor
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
-            // Bridge audio thread to actor
-            Task { [weak self] in
-                await self?.handleAudioBuffer(buffer, at: time)
-            }
-            
-            // Thread-safe counter increment
-            self?.tapCounterLock.withLock { $0 += 1 }
-        }
-        
-        try engine.start()
-        self.engine = engine
-        self.isRecording = true
-    }
-    
-    func stopRecording() async {
-        engine?.stop()
-        engine?.inputNode.removeTap(onBus: 0)
-        engine = nil
-        isRecording = false
-        streamContinuation?.finish()
-        streamContinuation = nil
-    }
-    
-    func getTapCount() async -> Int {
-        return tapCounterLock.withLock { $0 }
-    }
-    
-    func isRecording() async -> Bool {
-        return isRecording
-    }
-    
-    func getAudioLevel() async -> Float {
-        return audioLevelLock.withLock { $0 }
-    }
-    
-    func isMuted() async -> Bool {
-        return mutedLock.withLock { $0 }
-    }
-    
-    func setMuted(_ muted: Bool) async {
-        mutedLock.withLock { $0 = muted }
-    }
-    
-    func isPaused() async -> Bool {
-        return pausedLock.withLock { $0 }
-    }
-    
-    func setPaused(_ paused: Bool) async {
-        pausedLock.withLock { $0 = paused }
-    }
-    
-    func handleAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) async {
-        // Safe: running in actor context
-        // Process buffer and yield to stream if not muted/paused
-        
-        let isMuted = mutedLock.withLock { $0 }
-        let isPaused = pausedLock.withLock { $0 }
-        
-        guard !isMuted && !isPaused else { return }
-        
-        streamContinuation?.yield(buffer)
-    }
-    
-    func bufferStream() -> AsyncStream<AVAudioPCMBuffer> {
-        return AsyncStream { continuation in
-            self.streamContinuation = continuation
-            
-            continuation.onTermination = { _ in
-                Task {
-                    await self.stopRecording()
-                }
-            }
-        }
-    }
-}
+/// Note: Protocol stub implementations removed - full implementations exist in:
+/// - `StreamingTranscriber.swift` - actor-based implementation with backward-compatible wrapper
+/// - `MicCapture.swift` - actor-based implementation with backward-compatible wrapper
 
 // MARK: - Public Interface Wrappers
 

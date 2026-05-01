@@ -305,7 +305,7 @@ protocol TranscriptViewModel: ViewModelProtocol {
 // MARK: - Settings View Model
 
 /// Note generation styles
-enum NoteGenerationStyle: String, Sendable, CaseIterable, Codable {
+public enum NoteGenerationStyle: String, Sendable, CaseIterable, Codable {
     case concise = "concise"
     case detailed = "detailed"
     case bulletPoints = "bullets"

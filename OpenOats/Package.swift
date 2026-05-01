@@ -64,5 +64,10 @@ let package = Package(
             dependencies: ["OpenOatsKit"],
             path: "Tests/OpenOatsTests"
         ),
+        .testTarget(
+            name: "OpenOatsPerformanceTests",
+            dependencies: ["OpenOatsKit"],
+            path: "Tests/OpenOatsPerformanceTests"
+        ),
     ]
 )

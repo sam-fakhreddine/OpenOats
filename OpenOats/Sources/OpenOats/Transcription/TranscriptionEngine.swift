@@ -546,7 +546,7 @@ final class TranscriptionEngine {
                     self.micCapture.finishStream()
                     await self.micTask?.value
                     self.micTask = nil
-                    self.micCapture.stop()
+                    await self.micCapture.stop()
                     self.startMicStream(
                         locale: locale,
                         vadManager: vadManager,
@@ -730,7 +730,7 @@ final class TranscriptionEngine {
         await micTask?.value
         await sysTask?.value
 
-        micCapture.stop()
+        await micCapture.stop()
         await systemCapture.stop()
 
         micTask = nil
@@ -783,7 +783,7 @@ final class TranscriptionEngine {
         sysTask = nil
         micKeepAliveTask = nil
         Task { await systemCapture.stop() }
-        micCapture.stop()
+        await micCapture.stop()
         currentMicDeviceID = 0
         micBackend = nil
         systemBackend = nil

@@ -14,13 +14,18 @@ import AVFoundation
 // MARK: - Core Types
 
 /// Single audio frame for streaming processing
-struct AudioFrame: Sendable {
-    let sample: Float
-    let timestamp: UInt64  // Sample index for synchronization
+public struct AudioFrame: Sendable {
+    public let sample: Float
+    public let timestamp: UInt64  // Sample index for synchronization
+    
+    public init(sample: Float, timestamp: UInt64) {
+        self.sample = sample
+        self.timestamp = timestamp
+    }
 }
 
 /// Audio stream type identifier
-enum AudioStreamType: Sendable {
+public enum AudioStreamType: Sendable {
     case microphone
     case system
     case mixed
@@ -30,7 +35,7 @@ enum AudioStreamType: Sendable {
 
 /// Protocol for processing audio in fixed-size chunks
 /// Replaces the unbounded readAllMono() approach
-protocol AudioStreamProcessor: Sendable {
+public protocol AudioStreamProcessor: Sendable {
     /// Process audio in fixed-size chunks
     /// - Parameters:
     ///   - input: Input audio stream
@@ -46,7 +51,7 @@ protocol AudioStreamProcessor: Sendable {
 
 /// Protocol for reusable buffer management
 /// Minimizes allocations during streaming processing
-protocol BufferPool: Sendable {
+public protocol BufferPool: Sendable {
     associatedtype Buffer: Sendable
     
     /// Maximum number of buffers in the pool
@@ -66,14 +71,22 @@ protocol BufferPool: Sendable {
 }
 
 /// Statistics for buffer pool monitoring
-struct PoolStats: Sendable {
-    let available: Int
-    let inUse: Int
-    let totalMemory: Int
-    let totalAllocations: Int
-    let totalReleases: Int
+public struct PoolStats: Sendable {
+    public let available: Int
+    public let inUse: Int
+    public let totalMemory: Int
+    public let totalAllocations: Int
+    public let totalReleases: Int
     
-    var hitRate: Double {
+    public init(available: Int, inUse: Int, totalMemory: Int, totalAllocations: Int, totalReleases: Int) {
+        self.available = available
+        self.inUse = inUse
+        self.totalMemory = totalMemory
+        self.totalAllocations = totalAllocations
+        self.totalReleases = totalReleases
+    }
+    
+    public var hitRate: Double {
         guard totalAllocations > 0 else { return 0 }
         return Double(totalReleases) / Double(totalAllocations)
     }
@@ -83,19 +96,21 @@ struct PoolStats: Sendable {
 
 /// Reusable buffer pool for Float arrays
 /// Default: 4 buffers * 64K floats = ~1MB pool
-actor AudioBufferPool: BufferPool {
+public actor AudioBufferPool: BufferPool {
     /// Maximum buffer size: 64K frames = ~768KB for 48kHz stereo float
-    static let defaultChunkSize: Int = 64 * 1024
-    static let maxPoolSize: Int = 4  // ~3MB total pool
-    static let bufferSize: Int = defaultChunkSize
+    public static let defaultChunkSize: Int = 64 * 1024
+    public static let maxPoolSize: Int = 4  // ~3MB total pool
+    public static let bufferSize: Int = defaultChunkSize
     
     private var availableBuffers: [[Float]] = []
     private var inUseCount: Int = 0
     private var allocationCount: Int = 0
     private var releaseCount: Int = 0
     
+    public init() {}
+    
     /// Acquire a buffer from the pool
-    func acquire() -> [Float] {
+    public func acquire() -> [Float] {
         if let buffer = availableBuffers.popLast() {
             inUseCount += 1
             allocationCount += 1
@@ -108,7 +123,7 @@ actor AudioBufferPool: BufferPool {
     }
     
     /// Return buffer to pool for reuse
-    func release(_ buffer: inout [Float]) {
+    public func release(_ buffer: inout [Float]) {
         if availableBuffers.count < Self.maxPoolSize {
             // Zero the buffer for security/privacy
             for i in buffer.indices {
@@ -121,7 +136,7 @@ actor AudioBufferPool: BufferPool {
         buffer = []  // Clear reference
     }
     
-    var stats: PoolStats {
+    public var stats: PoolStats {
         PoolStats(
             available: availableBuffers.count,
             inUse: inUseCount,
@@ -136,7 +151,7 @@ actor AudioBufferPool: BufferPool {
 
 /// Protocol for fixed-size circular buffer
 /// Replaces unbounded Array growth for speech samples
-protocol CircularBufferProtocol: Sendable {
+public protocol CircularBufferProtocol: Sendable {
     /// Buffer capacity in samples
     var capacity: Int { get }
     
@@ -164,33 +179,33 @@ protocol CircularBufferProtocol: Sendable {
 
 /// Fixed-size circular buffer for speech samples
 /// Default: 5 second buffer at 16kHz = 80K samples = ~320KB
-struct CircularAudioBuffer: CircularBufferProtocol {
-    private var buffer: [Float]
+public struct CircularAudioBuffer: CircularBufferProtocol {
+    private var _buffer: [Float]
     private var head: Int = 0  // Write position
     private var tail: Int = 0  // Read position
-    private var count: Int = 0
+    private var _count: Int = 0
     
-    let capacity: Int
-    let overlap: Int
+    public let capacity: Int
+    public let overlap: Int
     
     /// Default: 5 second buffer at 16kHz with 0.5s overlap
-    static let defaultCapacity: Int = 16_000 * 5  // 80K samples
-    static let defaultOverlap: Int = 16_000 / 2   // 0.5s
+    public static let defaultCapacity: Int = 16_000 * 5  // 80K samples
+    public static let defaultOverlap: Int = 16_000 / 2   // 0.5s
     
-    init(capacity: Int = defaultCapacity, overlap: Int = defaultOverlap) {
+    public init(capacity: Int = defaultCapacity, overlap: Int = defaultOverlap) {
         self.capacity = capacity
         self.overlap = overlap
-        self.buffer = Array(repeating: 0.0, count: capacity)
+        self._buffer = Array(repeating: 0.0, count: capacity)
     }
     
     /// Write samples to buffer
-    mutating func write(_ samples: [Float]) {
+    public mutating func write(_ samples: [Float]) {
         for sample in samples {
-            buffer[head] = sample
+            _buffer[head] = sample
             head = (head + 1) % capacity
             
-            if count < capacity {
-                count += 1
+            if _count < capacity {
+                _count += 1
             } else {
                 // Buffer full, advance tail (overwriting oldest)
                 tail = (tail + 1) % capacity
@@ -199,10 +214,10 @@ struct CircularAudioBuffer: CircularBufferProtocol {
     }
     
     /// Read chunk for transcription (with overlap)
-    mutating func readChunk() -> [Float]? {
+    public mutating func readChunk() -> [Float]? {
         let chunkSize = capacity / 2
         
-        guard count >= chunkSize else {
+        guard _count >= chunkSize else {
             return nil  // Not enough data yet
         }
         
@@ -212,34 +227,40 @@ struct CircularAudioBuffer: CircularBufferProtocol {
         // Read chunk
         for i in 0..<chunkSize {
             let index = (tail + i) % capacity
-            result.append(buffer[index])
+            result.append(_buffer[index])
         }
         
         // Move tail back by overlap for next read
         tail = (tail + chunkSize - overlap) % capacity
-        count = overlap + (capacity - chunkSize)
+        _count = overlap + (capacity - chunkSize)
         
         return result
     }
     
     /// Get current buffer fill level (0.0 - 1.0)
-    var fillLevel: Double {
-        Double(count) / Double(capacity)
+    public var fillLevel: Double {
+        Double(_count) / Double(capacity)
     }
     
     /// Check if buffer is ready for transcription
-    var hasChunk: Bool {
-        count >= capacity / 2
+    public var hasChunk: Bool {
+        _count >= capacity / 2
     }
     
+    /// Access to the internal buffer (for testing)
+    public var buffer: [Float] { _buffer }
+    
+    /// Current count of samples in buffer
+    public var count: Int { _count }
+    
     /// Clear buffer
-    mutating func clear() {
+    public mutating func clear() {
         head = 0
         tail = 0
-        count = 0
+        _count = 0
         // Zero for security
-        for i in buffer.indices {
-            buffer[i] = 0.0
+        for i in _buffer.indices {
+            _buffer[i] = 0.0
         }
     }
 }
@@ -248,7 +269,7 @@ struct CircularAudioBuffer: CircularBufferProtocol {
 
 /// Protocol for streaming audio merging
 /// Replaces mergeAndEncode() which loaded entire files
-protocol StreamingAudioMergerProtocol: Sendable {
+public protocol StreamingAudioMergerProtocol: Sendable {
     /// Merge microphone and system audio streams
     /// Memory usage: ~768KB regardless of recording length
     func mergeStreams(
@@ -261,13 +282,15 @@ protocol StreamingAudioMergerProtocol: Sendable {
 // MARK: - Streaming Merger (Implementation)
 
 /// Streaming audio merger with bounded memory
-actor StreamingAudioMerger: StreamingAudioMergerProtocol {
+public actor StreamingAudioMerger: StreamingAudioMergerProtocol {
     private let bufferPool = AudioBufferPool()
     private let chunkSize = AudioBufferPool.defaultChunkSize
     
+    public init() {}
+    
     /// Merge microphone and system audio streams
     /// Memory usage: ~768KB regardless of recording length
-    func mergeStreams(
+    public func mergeStreams(
         micStream: AsyncThrowingStream<AudioFrame, Error>,
         sysStream: AsyncThrowingStream<AudioFrame, Error>,
         outputURL: URL
@@ -370,7 +393,7 @@ actor StreamingAudioMerger: StreamingAudioMergerProtocol {
     }
 }
 
-enum AudioMixerError: Error {
+public enum AudioMixerError: Error {
     case bufferCreationFailed
     case fileCreationFailed
     case writeFailed
@@ -380,7 +403,7 @@ enum AudioMixerError: Error {
 
 /// Protocol for streaming speech transcription
 /// Replaces unbounded speechSamples array
-protocol StreamingSpeechProcessorProtocol: Actor {
+public protocol StreamingSpeechProcessorProtocol: Actor {
     /// Maximum memory usage in bytes
     static var maxMemoryUsage: Int { get }
     
@@ -400,20 +423,21 @@ protocol StreamingSpeechProcessorProtocol: Actor {
 // MARK: - Streaming Speech Processor (Implementation)
 
 /// Replaces unbounded speech buffer with streaming approach
-actor StreamingSpeechProcessor: StreamingSpeechProcessorProtocol {
-    private var buffer = CircularAudioBuffer()
+public actor StreamingSpeechProcessor: StreamingSpeechProcessorProtocol {
+    private var buffer: CircularAudioBuffer
     private var isProcessing: Bool = false
     private var transcriptionBackend: StreamingTranscriptionBackend?
     
     /// Maximum memory usage: ~320KB (80K floats * 4 bytes)
-    static let maxMemoryUsage: Int = 320_000
+    public static let maxMemoryUsage: Int = 320_000
     
-    init(transcriptionBackend: StreamingTranscriptionBackend? = nil) {
+    public init(transcriptionBackend: StreamingTranscriptionBackend? = nil) {
         self.transcriptionBackend = transcriptionBackend
+        self.buffer = CircularAudioBuffer()
     }
     
     /// Process incoming speech samples
-    func processSamples(_ samples: [Float]) async throws {
+    public func processSamples(_ samples: [Float]) async throws {
         buffer.write(samples)
         
         // Transcribe in chunks as buffer fills
@@ -441,18 +465,18 @@ actor StreamingSpeechProcessor: StreamingSpeechProcessorProtocol {
     }
     
     /// Force flush remaining audio
-    func flush() async throws {
+    public func flush() async throws {
         while buffer.hasChunk {
             try await transcribeChunk()
         }
     }
     
-    func reset() {
+    public func reset() {
         buffer.clear()
         isProcessing = false
     }
     
-    nonisolated var currentMemoryUsage: Int {
+    nonisolated public var currentMemoryUsage: Int {
         // Fixed at ~320KB for the circular buffer
         Self.maxMemoryUsage
     }
@@ -461,7 +485,7 @@ actor StreamingSpeechProcessor: StreamingSpeechProcessorProtocol {
 // MARK: - Supporting Types
 
 /// Transcription configuration
-enum TranscriptionConfig: Sendable {
+public enum TranscriptionConfig: Sendable {
     case stream      // Real-time streaming
     case batch       // Batch processing
     case partial     // Partial hypothesis
@@ -469,8 +493,224 @@ enum TranscriptionConfig: Sendable {
 
 /// Transcription service protocol for streaming audio
 /// Note: This is used internally by StreamingSpeechProcessor
-protocol StreamingTranscriptionBackend: Sendable {
+public protocol StreamingTranscriptionBackend: Sendable {
     func transcribe(audio: [Float], config: TranscriptionConfig) async throws -> String
+}
+
+// MARK: - Storage Types for C4 (Temp File Durability)
+
+/// Audio storage location options
+public enum AudioStorageLocation: Sendable, Equatable {
+    case temporary
+    case applicationSupport
+    case caches
+    case documents
+    case custom(URL)
+}
+
+/// Recording state for lifecycle management
+public enum RecordingState: Sendable {
+    case recording
+    case paused
+    case finalizing
+    case completed
+    case cancelled
+    case unknown
+}
+
+/// Recording entry for repository
+public struct RecordingEntry: Sendable {
+    public let sessionID: SessionID
+    public var fileURL: URL
+    public var location: AudioStorageLocation
+    public let createdAt: Date
+    public var updatedAt: Date
+    public var state: RecordingState
+    
+    public init(
+        sessionID: SessionID,
+        fileURL: URL,
+        location: AudioStorageLocation,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        state: RecordingState
+    ) {
+        self.sessionID = sessionID
+        self.fileURL = fileURL
+        self.location = location
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.state = state
+    }
+}
+
+/// Protocol for storage policy
+public protocol RecordingStoragePolicy: Sendable {
+    func location(for state: RecordingState) -> AudioStorageLocation
+    func directory(for location: AudioStorageLocation) throws -> URL
+}
+
+/// Durable recording storage policy
+/// Active recordings use Application Support (not NSTemporaryDirectory)
+public struct DurableRecordingStoragePolicy: RecordingStoragePolicy {
+    
+    public init() {}
+    
+    public func location(for state: RecordingState) -> AudioStorageLocation {
+        switch state {
+        case .recording, .paused, .finalizing:
+            // Active recordings use Application Support for durability
+            return .applicationSupport
+        case .completed:
+            // Completed recordings move to Documents
+            return .documents
+        case .cancelled:
+            // Cancelled recordings can use temporary storage (will be deleted)
+            return .temporary
+        case .unknown:
+            // Unknown state defaults to temporary
+            return .temporary
+        }
+    }
+    
+    public func directory(for location: AudioStorageLocation) throws -> URL {
+        let fm = FileManager.default
+        
+        switch location {
+        case .temporary:
+            return URL(fileURLWithPath: NSTemporaryDirectory())
+            
+        case .applicationSupport:
+            guard let url = try? fm.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )?.appendingPathComponent("OpenOats/Recordings", isDirectory: true) else {
+                throw StorageError.directoryCreationFailed
+            }
+            try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+            
+        case .caches:
+            guard let url = try? fm.url(
+                for: .cachesDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            ) else {
+                throw StorageError.directoryCreationFailed
+            }
+            return url
+            
+        case .documents:
+            guard let url = try? fm.url(
+                for: .documentDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )?.appendingPathComponent("OpenOats/Recordings", isDirectory: true) else {
+                throw StorageError.directoryCreationFailed
+            }
+            try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+            
+        case .custom(let url):
+            return url
+        }
+    }
+}
+
+/// Repository for managing audio recordings with crash recovery
+public actor AudioRecordingRepository {
+    private let policy: RecordingStoragePolicy
+    private var entries: [SessionID: RecordingEntry] = [:]
+    
+    public init(policy: RecordingStoragePolicy = DurableRecordingStoragePolicy()) {
+        self.policy = policy
+    }
+    
+    /// Recover orphaned recordings from Application Support
+    /// Called on app startup to find recordings from previous sessions
+    public func recoverOrphanedRecordings() throws -> [RecordingEntry] {
+        var orphaned: [RecordingEntry] = []
+        
+        // Get Application Support directory
+        let appSupportDir = try policy.directory(for: .applicationSupport)
+        
+        // Scan for recording files that don't have corresponding active sessions
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: appSupportDir,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: .skipsHiddenFiles
+        ) else {
+            return orphaned
+        }
+        
+        for fileURL in files {
+            // Parse session ID from filename (format: recording_<uuid>.caf)
+            let filename = fileURL.lastPathComponent
+            guard filename.hasPrefix("recording_"),
+                  filename.hasSuffix(".caf") else {
+                continue
+            }
+            
+            // Extract UUID from filename
+            let uuidString = filename
+                .replacingOccurrences(of: "recording_", with: "")
+                .replacingOccurrences(of: ".caf", with: "")
+            
+            guard let uuid = UUID(uuidString: uuidString) else {
+                continue
+            }
+            
+            let sessionID = SessionID(rawValue: uuid)
+            
+            // Check if this entry is already tracked
+            guard entries[sessionID] == nil else {
+                continue
+            }
+            
+            // Get file creation date
+            let attributes = try? fm.attributesOfItem(atPath: fileURL.path)
+            let createdAt = attributes?[.creationDate] as? Date ?? Date()
+            
+            // Create entry for orphaned recording
+            let entry = RecordingEntry(
+                sessionID: sessionID,
+                fileURL: fileURL,
+                location: .applicationSupport,
+                createdAt: createdAt,
+                state: .unknown
+            )
+            
+            orphaned.append(entry)
+            entries[sessionID] = entry
+        }
+        
+        return orphaned
+    }
+    
+    /// Get all recording entries
+    public func allEntries() -> [RecordingEntry] {
+        Array(entries.values)
+    }
+    
+    /// Get entry for specific session
+    public func entry(for sessionID: SessionID) -> RecordingEntry? {
+        entries[sessionID]
+    }
+    
+    /// Add new recording entry
+    public func addEntry(_ entry: RecordingEntry) {
+        entries[entry.sessionID] = entry
+    }
+    
+    /// Update recording entry
+    public func updateEntry(_ entry: RecordingEntry) {
+        entries[entry.sessionID] = entry
+    }
 }
 
 // MARK: - Memory Budget Summary
@@ -490,4 +730,4 @@ protocol StreamingTranscriptionBackend: Sendable {
  - SAFETY: Audio buffer size < 1MB at all times
  - INVARIANT: Buffer pool size <= 4 chunks
  - INVARIANT: Circular buffer capacity fixed at 80K samples
-*/
+ */
