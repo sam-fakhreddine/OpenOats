@@ -1,5 +1,7 @@
 # OpenOats
 
+[![Auto-Maintainer](https://am.whhite.com/badge/yazinsai/openoats)](https://am.whhite.com)
+
 A meeting note-taker that talks back.
 
 <p align="center">
@@ -10,8 +12,16 @@ A meeting note-taker that talks back.
 
 OpenOats sits next to your call, transcribes both sides of the conversation in real time, and searches your own notes to surface things worth saying — right when you need them.
 
+---
+
+### Sponsored by Recall.ai — API for desktop recording
+
+If you're looking for a hosted desktop recording API, consider checking out [Recall.ai](https://dub.sh/openoats), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
+
+---
+
 <p align="center">
-  <img src="assets/screenshot.png" width="360" alt="OpenOats during a call — suggestions drawn from your own notes appear at the top, live transcript below" />
+  <img src="assets/hero.svg" width="720" alt="OpenOats during a call — suggestions drawn from your own notes appear at the top, live transcript below" />
 </p>
 
 ## Features
@@ -47,7 +57,20 @@ The app will ask you to acknowledge these obligations before your first recordin
 
 ## Download
 
-Grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenOats/releases/latest).
+Install via Homebrew:
+
+```bash
+brew tap yazinsai/openoats https://github.com/yazinsai/OpenOats
+brew install --cask yazinsai/openoats/openoats
+```
+
+To upgrade later:
+
+```bash
+brew upgrade --cask yazinsai/openoats/openoats
+```
+
+Or grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenOats/releases/latest).
 
 Or build from source:
 
@@ -58,7 +81,7 @@ Or build from source:
 ## Quick start
 
 1. Open the DMG and drag OpenOats to Applications
-2. Launch the app and grant microphone + screen capture permissions
+2. Launch the app and grant microphone + system audio recording permissions
 3. Open Settings (`Cmd+,`) and pick your providers:
    - **Cloud**: add your OpenRouter and Voyage AI API keys
    - **Local**: select Ollama as your LLM and embedding provider (make sure Ollama is running)
@@ -70,7 +93,7 @@ The first run downloads the local speech model (~600 MB).
 
 ## What you need
 
-- Apple Silicon Mac, macOS 26+
+- Apple Silicon Mac, macOS 15+
 - Xcode 26 / Swift 6.2
 - **For cloud mode**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key
 - **For local mode**: [Ollama](https://ollama.com/) running locally with your preferred models (e.g. `qwen3:8b` for suggestions, `nomic-embed-text` for embeddings)
@@ -90,6 +113,85 @@ Works well with meeting prep docs, research notes, pitch decks, competitive anal
 - API keys are stored in your Mac's Keychain
 - The app window is hidden from screen sharing by default
 - Transcripts are saved locally to `~/Documents/OpenOats/`
+
+### Cloud mode: what data leaves your Mac
+
+When using cloud providers, OpenOats makes the following network requests. **No audio is ever sent** — only text. In fully-local mode (Ollama for both LLM and embeddings), nothing touches the network at all.
+
+#### 1. Knowledge base indexing — Voyage AI (`api.voyageai.com/v1/embeddings`)
+
+**When:** Each time you index your knowledge base folder (on launch or when files change).
+
+**What is sent:**
+- Text chunks from your `.md` / `.txt` knowledge base files (split by markdown headings, 80–500 words each, with the header breadcrumb prepended)
+- Model name (`voyage-4-lite`) and requested output dimensions (`256`)
+- Input type (`document`)
+
+Chunks are sent in batches of 32. Only new or changed files are embedded — unchanged files use a local cache.
+
+#### 2. Knowledge base search — Voyage AI (`api.voyageai.com/v1/embeddings`)
+
+**When:** Each time the suggestion pipeline runs (triggered by a substantive utterance from the other speaker, subject to a 90-second cooldown).
+
+**What is sent:**
+- 1–4 short query strings derived from the conversation: the latest utterance text, the current conversation topic, a short conversation summary, and the top open question
+- Model name, dimensions, and input type (`query`)
+
+#### 3. Knowledge base reranking — Voyage AI (`api.voyageai.com/v1/rerank`)
+
+**When:** Immediately after step 2, if Voyage AI is the embedding provider.
+
+**What is sent:**
+- The primary search query (the latest utterance text)
+- Up to 10 candidate KB chunk texts (from your own notes) for reranking
+- Model name (`rerank-2.5-lite`)
+
+#### 4. Conversation state update — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
+
+**When:** Periodically during a session when the conversation state needs refreshing.
+
+**What is sent (as an LLM prompt):**
+- The previous conversation state (topic, summary, open questions, tensions, recent decisions, goals — all derived from earlier LLM calls)
+- Recent transcript utterances (both speakers, text only — labeled "You" / "Them")
+- The latest utterance from the other speaker
+- A system prompt instructing the model to update the conversation state
+
+#### 5. Surfacing gate — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
+
+**When:** After the KB search returns relevant results, to decide whether a suggestion is worth showing.
+
+**What is sent (as an LLM prompt):**
+- The latest utterance from the other speaker
+- Recent transcript exchange (both speakers, text only)
+- Current conversation state (topic, summary, open questions, tensions)
+- The detected trigger type and excerpt
+- Up to 5 KB evidence chunks (text from your notes, with source file and header, plus relevance scores)
+- Recently shown suggestion angles (short strings, to avoid repeats)
+
+#### 6. Suggestion generation — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
+
+**When:** Only if the surfacing gate approves (all quality scores above threshold).
+
+**What is sent (as an LLM prompt):**
+- The latest utterance from the other speaker
+- Current conversation state (topic and summary)
+- The gate's reasoning string
+- Up to 3 KB evidence chunks (text from your notes, with source file and header)
+
+#### 7. Meeting notes generation — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
+
+**When:** When you click "Generate Notes" after a session.
+
+**What is sent (as an LLM prompt):**
+- The full session transcript (both speakers, with timestamps, labeled "You" / "Them") — truncated to ~60,000 characters if very long
+- The meeting template's system prompt (e.g., instructions for formatting notes)
+
+#### What is never sent
+
+- **Audio** — transcription is always on-device via Apple Speech
+- **File paths or filenames from your system** (only KB source filenames appear in prompts)
+- **Your API keys to anyone other than the respective provider** (OpenRouter key to OpenRouter, Voyage key to Voyage)
+- **Any data when using Ollama** — all requests go to your local machine
 
 ## Build
 
@@ -112,7 +214,31 @@ Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE
 OpenOats/             SwiftUI app (Swift Package)
 scripts/              Build, sign, and package scripts
 assets/               Screenshot and app icon source
+docs/                 Documentation (ADR, specs, developer guide)
 ```
+
+## Developer Notes
+
+### Swift 6 @Observable Migration
+
+OpenOats uses **Swift 6's native `@Observable` framework** (not `ObservableObject`). The settings system has been consolidated:
+
+- `AppSettings` is now a `typealias` for `SettingsStore`
+- Both names refer to the same underlying type
+- Uses `access()`/`withMutation()` Observation pattern
+- All properties from both legacy classes unified
+
+See [Developer Guide](docs/DEVELOPER-GUIDE.md) for:
+- Migration instructions for existing code
+- How to add new observable properties
+- Testing with mock settings
+- Common issues and solutions
+
+### Build Requirements
+
+- Apple Silicon Mac, macOS 15+
+- Xcode 26 / Swift 6.2
+- See [CHANGELOG](CHANGELOG.md) for breaking changes
 
 ## License
 

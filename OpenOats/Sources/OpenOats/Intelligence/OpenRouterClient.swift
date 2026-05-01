@@ -4,9 +4,34 @@ import Foundation
 actor OpenRouterClient {
     private static let defaultBaseURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
 
+    /// Builds a chat completions URL from a user-provided base URL, stripping
+    /// any trailing `/v1` or `/v1/chat/completions` to avoid double-pathing.
+    static func chatCompletionsURL(from rawBase: String) -> URL? {
+        var base = rawBase.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        // Strip paths that users commonly include so we don't get /v1/v1/...
+        for suffix in ["/v1/chat/completions", "/v1"] {
+            if base.hasSuffix(suffix) {
+                base = String(base.dropLast(suffix.count))
+            }
+        }
+        return URL(string: base + "/v1/chat/completions")
+    }
+
+    static func isLocalHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0"
+    }
+
     struct Message: Codable, Sendable {
         let role: String
         let content: String
+    }
+
+    struct WebSearchPlugin: Codable, Sendable {
+        let id: String
+        let max_results: Int
+
+        static let `default` = WebSearchPlugin(id: "web", max_results: 5)
     }
 
     struct ChatRequest: Codable {
@@ -14,6 +39,29 @@ actor OpenRouterClient {
         let messages: [Message]
         let stream: Bool
         let max_tokens: Int?
+        let max_completion_tokens: Int?
+        let temperature: Double?
+        let plugins: [WebSearchPlugin]?
+    }
+
+    /// Whether a URL points to a host that supports the `max_completion_tokens`
+    /// parameter (OpenAI, OpenRouter). Other OpenAI-compatible providers such as
+    /// Mistral and Ollama only accept `max_tokens`.
+    private static func usesMaxCompletionTokens(_ url: URL) -> Bool {
+        guard let host = url.host else { return false }
+        return host.contains("openrouter.ai") || host.contains("openai.com")
+    }
+
+    static func preflightError(for url: URL, apiKey: String?) -> OpenRouterError? {
+        guard let host = url.host?.lowercased(), host.contains("openrouter.ai") else {
+            return nil
+        }
+
+        guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .missingAPIKey(host: host)
+        }
+
+        return nil
     }
 
     /// Streams the completion response, yielding text chunks.
@@ -27,16 +75,28 @@ actor OpenRouterClient {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    let targetURL = baseURL ?? Self.defaultBaseURL
+                    if let preflightError = Self.preflightError(for: targetURL, apiKey: apiKey) {
+                        continuation.finish(throwing: preflightError)
+                        return
+                    }
+                    let useNewParam = Self.usesMaxCompletionTokens(targetURL)
                     let request = ChatRequest(
                         model: model,
                         messages: messages,
                         stream: true,
-                        max_tokens: maxTokens
+                        max_tokens: useNewParam ? nil : maxTokens,
+                        max_completion_tokens: useNewParam ? maxTokens : nil,
+                        temperature: nil,
+                        plugins: nil
                     )
 
-                    let targetURL = baseURL ?? Self.defaultBaseURL
                     var urlRequest = URLRequest(url: targetURL)
                     urlRequest.httpMethod = "POST"
+                    // Idle timeout between streamed bytes. Must cover cold-start of local models
+                    // (Ollama/MLX) and first-token latency of reasoning models, which routinely
+                    // exceed URLRequest's 60s default.
+                    urlRequest.timeoutInterval = 300
                     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     if let apiKey, !apiKey.isEmpty {
                         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -51,7 +111,7 @@ actor OpenRouterClient {
                     guard let httpResponse = response as? HTTPURLResponse,
                           (200...299).contains(httpResponse.statusCode) else {
                         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                        continuation.finish(throwing: OpenRouterError.httpError(statusCode))
+                        continuation.finish(throwing: OpenRouterError.httpError(statusCode, host: targetURL.host))
                         return
                     }
 
@@ -85,18 +145,29 @@ actor OpenRouterClient {
         model: String,
         messages: [Message],
         maxTokens: Int = 512,
-        baseURL: URL? = nil
+        temperature: Double? = nil,
+        baseURL: URL? = nil,
+        webSearch: Bool = false
     ) async throws -> String {
+        let targetURL = baseURL ?? Self.defaultBaseURL
+        if let preflightError = Self.preflightError(for: targetURL, apiKey: apiKey) {
+            throw preflightError
+        }
+        let useNewParam = Self.usesMaxCompletionTokens(targetURL)
         let request = ChatRequest(
             model: model,
             messages: messages,
             stream: false,
-            max_tokens: maxTokens
+            max_tokens: useNewParam ? nil : maxTokens,
+            max_completion_tokens: useNewParam ? maxTokens : nil,
+            temperature: temperature,
+            plugins: webSearch ? [.default] : nil
         )
-
-        let targetURL = baseURL ?? Self.defaultBaseURL
         var urlRequest = URLRequest(url: targetURL)
         urlRequest.httpMethod = "POST"
+        // Total request timeout — covers gate / judge / structured-JSON calls that may hit
+        // slow local models or reasoning models. Default 60s is too aggressive in practice.
+        urlRequest.timeoutInterval = 300
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let apiKey, !apiKey.isEmpty {
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -111,7 +182,7 @@ actor OpenRouterClient {
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw OpenRouterError.httpError(statusCode)
+            throw OpenRouterError.httpError(statusCode, host: targetURL.host)
         }
 
         let completionResponse = try JSONDecoder().decode(CompletionResponse.self, from: data)
@@ -119,11 +190,26 @@ actor OpenRouterClient {
     }
 
     enum OpenRouterError: Error, LocalizedError {
-        case httpError(Int)
+        case httpError(Int, host: String?)
+        case missingAPIKey(host: String?)
 
         var errorDescription: String? {
             switch self {
-            case .httpError(let code): "OpenRouter API error (HTTP \(code))"
+            case .httpError(let code, let host):
+                let provider = switch host {
+                case let h? where h.contains("openrouter.ai"): "OpenRouter"
+                case let h? where h.contains("localhost"), let h? where h.contains("127.0.0.1"): "Local LLM"
+                case let h?: h
+                case nil: "LLM"
+                }
+                return "\(provider) API error (HTTP \(code))"
+            case .missingAPIKey(let host):
+                let provider = switch host {
+                case let h? where h.contains("openrouter.ai"): "OpenRouter"
+                case let h?: h
+                case nil: "LLM"
+                }
+                return "\(provider) API key required"
             }
         }
     }

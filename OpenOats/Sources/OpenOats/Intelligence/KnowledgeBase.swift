@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 import CryptoKit
 
@@ -7,24 +8,169 @@ struct KBChunk: Codable, Sendable {
     let sourceFile: String
     let headerContext: String
     let embedding: [Float]
+    let relativePath: String     // e.g. "sales/pricing.md"
+    let folderBreadcrumb: String // e.g. "sales"
+    let documentTitle: String    // first H1 or filename sans extension
+
+    init(text: String, sourceFile: String, headerContext: String, embedding: [Float], relativePath: String = "", folderBreadcrumb: String = "", documentTitle: String = "") {
+        self.text = text
+        self.sourceFile = sourceFile
+        self.headerContext = headerContext
+        self.embedding = embedding
+        self.relativePath = relativePath
+        self.folderBreadcrumb = folderBreadcrumb
+        self.documentTitle = documentTitle
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        sourceFile = try container.decode(String.self, forKey: .sourceFile)
+        headerContext = try container.decode(String.self, forKey: .headerContext)
+        embedding = try container.decode([Float].self, forKey: .embedding)
+        relativePath = try container.decodeIfPresent(String.self, forKey: .relativePath) ?? sourceFile
+        folderBreadcrumb = try container.decodeIfPresent(String.self, forKey: .folderBreadcrumb) ?? ""
+        documentTitle = try container.decodeIfPresent(String.self, forKey: .documentTitle) ?? sourceFile
+    }
 }
 
 /// Disk cache format for embedded KB chunks.
-private struct KBCache: Codable {
+private struct KBCache: Codable, Sendable {
     /// Keyed by "filename:sha256hash"
     var entries: [String: [KBChunk]]
     /// Fingerprint of the embedding config used to produce these vectors.
     var embeddingConfigFingerprint: String?
+    /// Canonical folder path the cache was built from.
+    var folderPath: String?
+}
+
+enum KnowledgeBaseIndexingStatus: Equatable, Sendable {
+    case idle
+    case scanning
+    case embedding(completed: Int, total: Int, activeRange: ClosedRange<Int>?)
+    case completed(total: Int)
+    case blocked(message: String)
+    case failed(message: String)
+
+    var isVisible: Bool {
+        self != .idle
+    }
+
+    var needsFrequentPolling: Bool {
+        switch self {
+        case .scanning, .embedding, .completed:
+            return true
+        case .idle, .blocked, .failed:
+            return false
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .idle:
+            return ""
+        case .scanning:
+            return "Preparing knowledge base..."
+        case .embedding:
+            return "Indexing knowledge base..."
+        case .completed:
+            return "Knowledge base ready"
+        case .blocked:
+            return "Knowledge base indexing paused"
+        case .failed:
+            return "Knowledge base indexing failed"
+        }
+    }
+
+    var detailText: String? {
+        switch self {
+        case .scanning:
+            return "Scanning files and checking cached chunks"
+        case .embedding(let completed, let total, let activeRange):
+            if completed == 0 {
+                if let activeRange {
+                    return "Processing chunks \(activeRange.lowerBound.formatted())-\(activeRange.upperBound.formatted()) of \(total.formatted())"
+                }
+                return "\(total.formatted()) chunks queued"
+            }
+            return "\(completed.formatted()) of \(total.formatted()) chunks"
+        case .completed(let total):
+            return "\(total.formatted()) chunks indexed"
+        case .blocked(let message), .failed(let message):
+            return message
+        case .idle:
+            return nil
+        }
+    }
+
+    var progress: Double? {
+        guard case .embedding(let completed, let total, _) = self, total > 0, completed > 0 else {
+            return nil
+        }
+
+        return min(max(Double(completed) / Double(total), 0), 1)
+    }
+
+    var percentText: String? {
+        guard case .embedding(let completed, let total, _) = self, total > 0 else {
+            return nil
+        }
+
+        if completed <= 0 {
+            return nil
+        }
+
+        let progress = Double(completed) / Double(total)
+        if progress < 0.01 {
+            return "<1%"
+        }
+
+        return "\(Int(progress * 100))%"
+    }
+
+    var helpText: String {
+        switch self {
+        case .idle:
+            return ""
+        case .scanning:
+            return "OpenOats is scanning your Knowledge Base folder so it can prepare meeting context."
+        case .embedding:
+            return "OpenOats is indexing your Knowledge Base folder so it can surface relevant context during meetings."
+        case .completed:
+            return "OpenOats finished indexing your Knowledge Base folder and can use it during meetings."
+        case .blocked(let message), .failed(let message):
+            return message
+        }
+    }
 }
 
 /// Embedding-based knowledge base search using Voyage AI or Ollama.
 @Observable
 @MainActor
 final class KnowledgeBase {
-    private(set) var chunks: [KBChunk] = []
-    private(set) var isIndexed = false
-    private(set) var fileCount = 0
-    private(set) var indexingProgress: String = ""
+    @ObservationIgnored nonisolated(unsafe) private var _chunks: [KBChunk] = []
+    private(set) var chunks: [KBChunk] {
+        get { access(keyPath: \.chunks); return _chunks }
+        set { withMutation(keyPath: \.chunks) { _chunks = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _isIndexed = false
+    private(set) var isIndexed: Bool {
+        get { access(keyPath: \.isIndexed); return _isIndexed }
+        set { withMutation(keyPath: \.isIndexed) { _isIndexed = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _fileCount = 0
+    private(set) var fileCount: Int {
+        get { access(keyPath: \.fileCount); return _fileCount }
+        set { withMutation(keyPath: \.fileCount) { _fileCount = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _indexingStatus: KnowledgeBaseIndexingStatus = .idle
+    private(set) var indexingStatus: KnowledgeBaseIndexingStatus {
+        get { access(keyPath: \.indexingStatus); return _indexingStatus }
+        set { withMutation(keyPath: \.indexingStatus) { _indexingStatus = newValue } }
+    }
 
     private let settings: AppSettings
     private let voyageClient = VoyageClient()
@@ -41,120 +187,188 @@ final class KnowledgeBase {
         self.settings = settings
     }
 
+    /// Restore indexed chunks from disk without re-scanning the configured folder.
+    /// Returns true only when the cached embedding config and folder path match.
+    @discardableResult
+    func loadCachedStateIfAvailable(folderURL: URL) -> Bool {
+        let cache = loadCache()
+        let fingerprint = embeddingConfigFingerprint()
+        let canonicalFolderPath = Self.canonicalFolderPath(folderURL)
+
+        guard cache.embeddingConfigFingerprint == fingerprint,
+              cache.folderPath == canonicalFolderPath else {
+            return false
+        }
+
+        let cachedChunks = cache.entries.values.flatMap { $0 }
+        guard !cachedChunks.isEmpty else {
+            return false
+        }
+
+        finishIndexing(chunks: cachedChunks, fileCount: cache.entries.count)
+        indexingStatus = .idle
+        return true
+    }
+
     func index(folderURL: URL) async {
         let provider = settings.embeddingProvider
 
         // Validate credentials based on provider
         if provider == .voyageAI {
             guard !settings.voyageApiKey.isEmpty else {
-                indexingProgress = "No Voyage AI API key"
+                indexingStatus = .blocked(message: "Add a Voyage AI API key in Settings to index your knowledge base.")
                 return
             }
         }
 
-        indexingProgress = "Scanning files..."
-        let fileURLs = collectFiles(in: folderURL)
-        guard !fileURLs.isEmpty else {
-            indexingProgress = ""
+        indexingStatus = .scanning
+
+        // Load existing cache; invalidate if embedding config changed
+        let fingerprint = embeddingConfigFingerprint()
+        let canonicalFolderPath = Self.canonicalFolderPath(folderURL)
+        var cache = loadCache()
+        if cache.embeddingConfigFingerprint != fingerprint || cache.folderPath != canonicalFolderPath {
+            cache = KBCache(
+                entries: [:],
+                embeddingConfigFingerprint: fingerprint,
+                folderPath: canonicalFolderPath
+            )
+        }
+
+        // Move all blocking file I/O off the main thread
+        let cacheSnapshot = cache
+        let scanResult = await Task.detached {
+            Self.scanFiles(in: folderURL, cache: cacheSnapshot)
+        }.value
+
+        guard !scanResult.fileURLs.isEmpty else {
+            indexingStatus = .idle
             isIndexed = true
             return
         }
 
-        // Load existing cache; invalidate if embedding config changed
-        let fingerprint = embeddingConfigFingerprint()
-        var cache = loadCache()
-        if cache.embeddingConfigFingerprint != fingerprint {
-            cache = KBCache(entries: [:], embeddingConfigFingerprint: fingerprint)
-        }
-        var allChunks: [KBChunk] = []
-        var filesToEmbed: [(key: String, chunks: [(text: String, header: String)])] = []
-        var files = 0
-
-        for fileURL in fileURLs {
-            guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-            files += 1
-
-            let fileName = fileURL.lastPathComponent
-            let hash = sha256(content)
-            let cacheKey = "\(fileName):\(hash)"
-
-            // Reuse cached embeddings if content hasn't changed
-            if let cached = cache.entries[cacheKey] {
-                allChunks.append(contentsOf: cached)
-                continue
-            }
-
-            let textChunks = chunkMarkdown(content, sourceFile: fileName)
-            filesToEmbed.append((key: cacheKey, chunks: textChunks))
-        }
+        var allChunks = scanResult.cachedChunks
+        let filesToEmbed = scanResult.filesToEmbed
 
         // Embed new/changed files in batches
         if !filesToEmbed.isEmpty {
             let allTextsToEmbed = filesToEmbed.flatMap { entry in
-                entry.chunks.map { "\($0.header)\n\($0.text)" }
+                entry.chunks.map { chunk in
+                    var prefix = entry.relativePath
+                    if !chunk.header.isEmpty { prefix += " > \(chunk.header)" }
+                    return "\(prefix)\n\(chunk.text)"
+                }
             }
 
-            indexingProgress = "Embedding \(allTextsToEmbed.count) chunks..."
+            indexingStatus = .embedding(completed: 0, total: allTextsToEmbed.count, activeRange: nil)
 
             let result = await embedInBatches(texts: allTextsToEmbed)
-            let embeddings = result.embeddings
-
-            if embeddings == nil, let errMsg = result.error {
-                indexingProgress = "Embed error: \(errMsg)"
+            guard let embeddings = result.embeddings else {
+                failIndexing(
+                    message: result.error ?? "Embedding failed before any chunks were indexed.",
+                    availableChunks: allChunks,
+                    fileCount: scanResult.fileCount
+                )
+                return
             }
 
-            if let embeddings {
-                var offset = 0
-                for entry in filesToEmbed {
-                    var fileChunks: [KBChunk] = []
-                    for chunk in entry.chunks {
-                        let embedding = embeddings[offset]
-                        let kbChunk = KBChunk(
-                            text: chunk.text,
-                            sourceFile: entry.key.components(separatedBy: ":").first ?? "",
-                            headerContext: chunk.header,
-                            embedding: embedding
-                        )
-                        fileChunks.append(kbChunk)
-                        offset += 1
-                    }
-                    cache.entries[entry.key] = fileChunks
-                    allChunks.append(contentsOf: fileChunks)
+            var offset = 0
+            for entry in filesToEmbed {
+                var fileChunks: [KBChunk] = []
+                for chunk in entry.chunks {
+                    let embedding = embeddings[offset]
+                    let fileName = entry.key.components(separatedBy: ":").first ?? ""
+                    let kbChunk = KBChunk(
+                        text: chunk.text,
+                        sourceFile: fileName,
+                        headerContext: chunk.header,
+                        embedding: Self.normalizeEmbedding(embedding),
+                        relativePath: entry.relativePath,
+                        folderBreadcrumb: entry.folderBreadcrumb,
+                        documentTitle: entry.documentTitle
+                    )
+                    fileChunks.append(kbChunk)
+                    offset += 1
                 }
-
-                // Remove stale cache entries (files that no longer exist)
-                let currentKeys = Set(
-                    fileURLs.compactMap { url -> String? in
-                        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-                        return "\(url.lastPathComponent):\(sha256(content))"
-                    }
-                )
-                // Also keep keys for files that were cached and reused
-                let allRelevantKeys = Set(filesToEmbed.map(\.key)).union(
-                    currentKeys
-                )
-                cache.entries = cache.entries.filter { allRelevantKeys.contains($0.key) }
-
-                saveCache(cache)
+                cache.entries[entry.key] = fileChunks
+                allChunks.append(contentsOf: fileChunks)
             }
+
+            // Prune stale cache entries using pre-computed keys
+            let allRelevantKeys = Set(filesToEmbed.map(\.key)).union(scanResult.currentCacheKeys)
+            cache.entries = cache.entries.filter { allRelevantKeys.contains($0.key) }
+
+            saveCache(cache)
         } else {
             // All files were cached — still prune stale entries
-            let currentKeys = Set(
-                fileURLs.compactMap { url -> String? in
-                    guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-                    return "\(url.lastPathComponent):\(sha256(content))"
-                }
-            )
-            if cache.entries.keys.count != currentKeys.count {
-                cache.entries = cache.entries.filter { currentKeys.contains($0.key) }
+            if cache.entries.keys.count != scanResult.currentCacheKeys.count {
+                cache.entries = cache.entries.filter { scanResult.currentCacheKeys.contains($0.key) }
                 saveCache(cache)
             }
         }
 
-        self.chunks = allChunks
-        self.fileCount = files
-        self.isIndexed = true
-        self.indexingProgress = ""
+        finishIndexing(chunks: allChunks, fileCount: scanResult.fileCount)
+    }
+
+    // MARK: - Background File Scanning
+
+    private struct FileScanResult: Sendable {
+        let fileURLs: [URL]
+        let fileCount: Int
+        let cachedChunks: [KBChunk]
+        let filesToEmbed: [FileToEmbed]
+        let currentCacheKeys: Set<String>
+    }
+
+    private struct FileToEmbed: Sendable {
+        let key: String
+        let chunks: [(text: String, header: String)]
+        let relativePath: String
+        let folderBreadcrumb: String
+        let documentTitle: String
+    }
+
+    /// Reads all KB files off the main thread. Pure file I/O — no actor-isolated state.
+    private nonisolated static func scanFiles(in folderURL: URL, cache: KBCache) -> FileScanResult {
+        let fileURLs = collectFilesStatic(in: folderURL)
+        guard !fileURLs.isEmpty else {
+            return FileScanResult(fileURLs: [], fileCount: 0, cachedChunks: [], filesToEmbed: [], currentCacheKeys: [])
+        }
+
+        var cachedChunks: [KBChunk] = []
+        var filesToEmbed: [FileToEmbed] = []
+        var fileCount = 0
+        var currentCacheKeys = Set<String>()
+
+        for fileURL in fileURLs {
+            guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
+            fileCount += 1
+
+            let fileName = fileURL.lastPathComponent
+            let hash = sha256Static(content)
+            let cacheKey = "\(fileName):\(hash)"
+            currentCacheKeys.insert(cacheKey)
+
+            // Reuse cached embeddings if content hasn't changed
+            if let cached = cache.entries[cacheKey] {
+                cachedChunks.append(contentsOf: cached)
+                continue
+            }
+
+            let relativePath = fileURL.path.hasPrefix(folderURL.path)
+                ? String(fileURL.path.dropFirst(folderURL.path.count).drop(while: { $0 == "/" }))
+                : fileName
+
+            let folderBreadcrumb = URL(fileURLWithPath: relativePath).deletingLastPathComponent().path
+                .trimmingCharacters(in: CharacterSet(charactersIn: "./"))
+
+            let docTitle = extractDocumentTitleStatic(from: content) ?? fileName.replacingOccurrences(of: ".\(fileURL.pathExtension)", with: "")
+
+            let textChunks = chunkMarkdownStatic(content, sourceFile: fileName)
+            filesToEmbed.append(FileToEmbed(key: cacheKey, chunks: textChunks, relativePath: relativePath, folderBreadcrumb: folderBreadcrumb, documentTitle: docTitle))
+        }
+
+        return FileScanResult(fileURLs: fileURLs, fileCount: fileCount, cachedChunks: cachedChunks, filesToEmbed: filesToEmbed, currentCacheKeys: currentCacheKeys)
     }
 
     func search(query: String, topK: Int = 5) async -> [KBResult] {
@@ -163,10 +377,39 @@ final class KnowledgeBase {
 
     /// Multi-query search with score fusion. Deduplicates by chunk index, uses max score.
     func search(queries: [String], topK: Int = 5) async -> [KBResult] {
+        await searchRaw(queries: queries, topK: topK).map(\.result)
+    }
+
+    /// Search returning rich context packs with adjacent sibling text.
+    func searchContextPacks(queries: [String], topK: Int = 3) async -> [KBContextPack] {
+        let raw = await searchRaw(queries: queries, topK: topK)
+        return raw.map { chunkIndex, result in
+            let prevSibling: String? = chunkIndex > 0 && chunks[chunkIndex - 1].sourceFile == result.sourceFile
+                ? chunks[chunkIndex - 1].text : nil
+            let nextSibling: String? = chunkIndex < chunks.count - 1 && chunks[chunkIndex + 1].sourceFile == result.sourceFile
+                ? chunks[chunkIndex + 1].text : nil
+            let chunk = chunks[chunkIndex]
+            return KBContextPack(
+                matchedText: result.text,
+                relativePath: chunk.relativePath,
+                folderBreadcrumb: chunk.folderBreadcrumb,
+                documentTitle: chunk.documentTitle,
+                headerBreadcrumb: result.headerContext,
+                score: result.score,
+                previousSiblingText: prevSibling,
+                nextSiblingText: nextSibling
+            )
+        }
+    }
+
+    /// Core search implementation. Returns chunk indices alongside results so callers
+    /// don't need to re-scan the chunks array to locate matched entries.
+    private func searchRaw(queries: [String], topK: Int) async -> [(chunkIndex: Int, result: KBResult)] {
+        await ensureSearchReady()
+
         let provider = settings.embeddingProvider
         guard isIndexed, !chunks.isEmpty else { return [] }
 
-        // Validate credentials for the active provider
         if provider == .voyageAI {
             guard !settings.voyageApiKey.isEmpty else { return [] }
         }
@@ -174,20 +417,22 @@ final class KnowledgeBase {
         let validQueries = queries.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !validQueries.isEmpty else { return [] }
 
-        // Embed all queries at once
         let queryEmbeddings: [[Float]]
         do {
             queryEmbeddings = try await embedTexts(validQueries, inputType: "query")
         } catch {
-            print("KB search embed error: \(error)")
+            Log.knowledgeBase.error("KB search embed error: \(error, privacy: .public)")
             return []
         }
 
-        // Score fusion: for each chunk, take max cosine similarity across all queries
+        // Score fusion: for each chunk, take max cosine similarity across all queries.
+        // Query is normalized once per query; chunk embeddings are pre-normalized at index time,
+        // so cosine similarity reduces to a single vDSP dot product.
         var bestScores: [Int: Float] = [:]
         for queryEmb in queryEmbeddings {
-            for (i, chunk) in chunks.enumerated() {
-                let sim = cosineSimilarity(queryEmb, chunk.embedding)
+            let normQuery = Self.normalizeEmbedding(queryEmb)
+            for i in 0..<chunks.count {
+                let sim = cosineSimilarity(normQuery, chunks[i].embedding)
                 if sim > 0.1 {
                     bestScores[i] = max(bestScores[i] ?? 0, sim)
                 }
@@ -206,34 +451,34 @@ final class KnowledgeBase {
             do {
                 let reranked = try await voyageClient.rerank(
                     apiKey: settings.voyageApiKey,
-                    query: validQueries[0],
+                    query: validQueries.joined(separator: " "),
                     documents: candidateDocs,
                     topN: topK
                 )
                 return reranked.map { result in
-                    let originalIdx = topCandidates[result.index].index
-                    let chunk = chunks[originalIdx]
-                    return KBResult(
+                    let chunkIndex = topCandidates[result.index].index
+                    let chunk = chunks[chunkIndex]
+                    return (chunkIndex, KBResult(
                         text: chunk.text,
                         sourceFile: chunk.sourceFile,
                         headerContext: chunk.headerContext,
                         score: result.score
-                    )
+                    ))
                 }
             } catch {
-                print("KB rerank error (falling back to cosine): \(error)")
+                Log.knowledgeBase.error("KB rerank error (falling back to cosine): \(error, privacy: .public)")
             }
         }
 
         // Cosine-similarity fallback (used by Ollama or when Voyage rerank fails)
         return topCandidates.prefix(topK).map { candidate in
             let chunk = chunks[candidate.index]
-            return KBResult(
+            return (candidate.index, KBResult(
                 text: chunk.text,
                 sourceFile: chunk.sourceFile,
                 headerContext: chunk.headerContext,
                 score: Double(candidate.score)
-            )
+            ))
         }
     }
 
@@ -241,12 +486,12 @@ final class KnowledgeBase {
         chunks.removeAll()
         isIndexed = false
         fileCount = 0
-        indexingProgress = ""
+        indexingStatus = .idle
     }
 
     // MARK: - File Collection
 
-    private nonisolated func collectFiles(in folderURL: URL) -> [URL] {
+    private nonisolated static func collectFilesStatic(in folderURL: URL) -> [URL] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: folderURL,
@@ -266,8 +511,19 @@ final class KnowledgeBase {
 
     // MARK: - Markdown Chunking
 
+    /// Extracts the first H1 heading from markdown content, or nil.
+    private nonisolated static func extractDocumentTitleStatic(from content: String) -> String? {
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("# ") && !trimmed.hasPrefix("##") {
+                return String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
     /// Splits markdown content into chunks aware of header hierarchy.
-    private nonisolated func chunkMarkdown(_ text: String, sourceFile: String) -> [(text: String, header: String)] {
+    private nonisolated static func chunkMarkdownStatic(_ text: String, sourceFile: String) -> [(text: String, header: String)] {
         let lines = text.components(separatedBy: .newlines)
 
         struct Section {
@@ -399,12 +655,14 @@ final class KnowledgeBase {
     /// Any change (provider, model, URL) produces a different fingerprint, invalidating the cache.
     private func embeddingConfigFingerprint() -> String {
         switch settings.embeddingProvider {
+        // "n1" suffix denotes normalized embeddings stored in cache (added with Accelerate refactor).
+        // Changing this value invalidates all existing caches and forces a full re-embed.
         case .voyageAI:
-            return "voyageAI"
+            return "voyageAI|n1"
         case .ollama:
-            return "ollama|\(settings.ollamaBaseURL)|\(settings.ollamaEmbedModel)"
+            return "ollama|\(settings.ollamaBaseURL)|\(settings.ollamaEmbedModel)|n1"
         case .openAICompatible:
-            return "openAI|\(settings.openAIEmbedBaseURL)|\(settings.openAIEmbedModel)"
+            return "openAI|\(settings.openAIEmbedBaseURL)|\(settings.openAIEmbedModel)|n1"
         }
     }
 
@@ -437,21 +695,103 @@ final class KnowledgeBase {
 
     // MARK: - Embedding Batches
 
+    func finishIndexing(chunks: [KBChunk], fileCount: Int) {
+        self.chunks = chunks
+        self.fileCount = fileCount
+        self.isIndexed = true
+        showCompletedStatus(total: chunks.count)
+    }
+
+    func failIndexing(message: String, availableChunks: [KBChunk] = [], fileCount: Int? = nil) {
+        if let fileCount {
+            self.fileCount = fileCount
+        }
+
+        if availableChunks.isEmpty {
+            chunks.removeAll()
+            isIndexed = false
+        } else {
+            chunks = availableChunks
+            isIndexed = true
+        }
+
+        indexingStatus = .failed(message: message)
+    }
+
+    private func showCompletedStatus(total: Int) {
+        let completedStatus = KnowledgeBaseIndexingStatus.completed(total: total)
+        indexingStatus = completedStatus
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.indexingStatus == completedStatus else { return }
+            self.indexingStatus = .idle
+        }
+    }
+
     private func embedInBatches(texts: [String]) async -> (embeddings: [[Float]]?, error: String?) {
         let batchSize = 32
+        let batches = stride(from: 0, to: texts.count, by: batchSize).map { start in
+            Array(texts[start..<min(start + batchSize, texts.count)])
+        }
+
+        // Ollama is local with no rate limits — fire all batches concurrently.
+        // Cloud providers (Voyage, OpenAI-compatible) are rate-limited, keep sequential.
+        if settings.embeddingProvider == .ollama {
+            return await embedBatchesConcurrently(batches, total: texts.count)
+        } else {
+            return await embedBatchesSequentially(batches, total: texts.count)
+        }
+    }
+
+    private func embedBatchesConcurrently(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
+        if total > 0 {
+            indexingStatus = .embedding(completed: 0, total: total, activeRange: 1...min(32, total))
+        }
+        typealias Indexed = (order: Int, embeddings: [[Float]]?)
+        let results: [Indexed] = await withTaskGroup(of: Indexed.self) { group in
+            for (i, batch) in batches.enumerated() {
+                group.addTask {
+                    for attempt in 0..<2 {
+                        if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+                        if let embs = try? await self.embedTexts(batch, inputType: "document") {
+                            return (i, embs)
+                        }
+                    }
+                    return (i, nil)
+                }
+            }
+            var collected: [Indexed] = []
+            var completed = 0
+            for await r in group {
+                collected.append(r)
+                if let embeddings = r.embeddings {
+                    completed += embeddings.count
+                    indexingStatus = .embedding(completed: min(completed, total), total: total, activeRange: nil)
+                }
+            }
+            return collected.sorted { $0.order < $1.order }
+        }
+        guard !results.contains(where: { $0.embeddings == nil }) else {
+            return (nil, "One or more embedding batches failed")
+        }
+        return (results.flatMap { $0.embeddings! }, nil)
+    }
+
+    private func embedBatchesSequentially(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
         var allEmbeddings: [[Float]] = []
-
-        for batchStart in stride(from: 0, to: texts.count, by: batchSize) {
-            let batchEnd = min(batchStart + batchSize, texts.count)
-            let batch = Array(texts[batchStart..<batchEnd])
-
-            indexingProgress = "Embedding \(batchStart + 1)-\(batchEnd) of \(texts.count)..."
-
+        var offset = 0
+        for batch in batches {
+            let rangeStart = offset + 1
+            let rangeEnd = offset + batch.count
+            indexingStatus = .embedding(completed: offset, total: total, activeRange: rangeStart...rangeEnd)
             var retried = false
             while true {
                 do {
                     let embeddings = try await embedTexts(batch, inputType: "document")
                     allEmbeddings.append(contentsOf: embeddings)
+                    offset += embeddings.count
+                    indexingStatus = .embedding(completed: min(offset, total), total: total, activeRange: nil)
                     break
                 } catch {
                     if !retried {
@@ -463,28 +803,32 @@ final class KnowledgeBase {
                 }
             }
         }
-
         return (allEmbeddings, nil)
     }
 
     // MARK: - Vector Math
 
+    /// Returns the dot product of two pre-normalized (unit) vectors, which equals cosine similarity.
+    /// Both inputs must already be unit vectors — call `normalizeEmbedding` first.
     private nonisolated func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
+        var result: Float = 0
+        vDSP_dotpr(a, 1, b, 1, &result, vDSP_Length(a.count))
+        return result
+    }
 
-        var dot: Float = 0
-        var magA: Float = 0
-        var magB: Float = 0
-
-        for i in 0..<a.count {
-            dot += a[i] * b[i]
-            magA += a[i] * a[i]
-            magB += b[i] * b[i]
-        }
-
-        let denom = sqrt(magA) * sqrt(magB)
-        guard denom > 0 else { return 0 }
-        return dot / denom
+    /// Returns a unit-length copy of `v` using SIMD-accelerated vDSP operations.
+    /// Pre-normalizing embeddings at index time means each search query pays only a dot product.
+    private nonisolated static func normalizeEmbedding(_ v: [Float]) -> [Float] {
+        guard !v.isEmpty else { return v }
+        var sumOfSquares: Float = 0
+        vDSP_svesq(v, 1, &sumOfSquares, vDSP_Length(v.count))
+        let mag = sqrt(sumOfSquares)
+        guard mag > 0 else { return v }
+        var scale = 1.0 / mag
+        var result = [Float](repeating: 0, count: v.count)
+        vDSP_vsmul(v, 1, &scale, &result, 1, vDSP_Length(v.count))
+        return result
     }
 
     // MARK: - Cache
@@ -503,14 +847,28 @@ final class KnowledgeBase {
 
     private nonisolated func saveCache(_ cache: KBCache) {
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        try? data.write(to: Self.cacheURL(), options: .atomic)
+        let url = Self.cacheURL()
+        try? data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func ensureSearchReady() async {
+        guard !isIndexed, let folderURL = settings.kbFolderURL else { return }
+        if loadCachedStateIfAvailable(folderURL: folderURL) {
+            return
+        }
+        await index(folderURL: folderURL)
     }
 
     // MARK: - Hashing
 
-    private nonisolated func sha256(_ string: String) -> String {
+    private nonisolated static func sha256Static(_ string: String) -> String {
         let data = Data(string.utf8)
         let hash = SHA256.hash(data: data)
         return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func canonicalFolderPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
     }
 }

@@ -1,48 +1,5 @@
 import Foundation
 
-enum Speaker: String, Codable, Sendable {
-    case you
-    case them
-}
-
-struct Utterance: Identifiable, Codable, Sendable {
-    let id: UUID
-    let text: String
-    let speaker: Speaker
-    let timestamp: Date
-
-    init(text: String, speaker: Speaker, timestamp: Date = .now) {
-        self.id = UUID()
-        self.text = text
-        self.speaker = speaker
-        self.timestamp = timestamp
-    }
-}
-
-// MARK: - Conversation State
-
-struct ConversationState: Sendable, Codable {
-    var currentTopic: String
-    var shortSummary: String
-    var openQuestions: [String]
-    var activeTensions: [String]
-    var recentDecisions: [String]
-    var themGoals: [String]
-    var suggestedAnglesRecentlyShown: [String]
-    var lastUpdatedAt: Date
-
-    static let empty = ConversationState(
-        currentTopic: "",
-        shortSummary: "",
-        openQuestions: [],
-        activeTensions: [],
-        recentDecisions: [],
-        themGoals: [],
-        suggestedAnglesRecentlyShown: [],
-        lastUpdatedAt: .distantPast
-    )
-}
-
 // MARK: - Suggestion Trigger
 
 enum SuggestionTriggerKind: String, Codable, Sendable {
@@ -57,7 +14,24 @@ enum SuggestionTriggerKind: String, Codable, Sendable {
     case unclear
 }
 
-struct SuggestionTrigger: Sendable, Codable {
+/// Collapsed trigger categories for the real-time pipeline.
+enum RealtimeTriggerKind: String, Codable, Sendable {
+    case question   // maps from: explicitQuestion, decisionPoint
+    case claim      // maps from: assumption, disagreement
+    case topic      // maps from: customerProblem, distributionGoToMarket, productScope, prioritization
+    case general    // fallback
+
+    init(from legacy: SuggestionTriggerKind) {
+        switch legacy {
+        case .explicitQuestion, .decisionPoint: self = .question
+        case .assumption, .disagreement: self = .claim
+        case .customerProblem, .distributionGoToMarket, .productScope, .prioritization: self = .topic
+        case .unclear: self = .general
+        }
+    }
+}
+
+struct SuggestionTrigger: Sendable, Codable, Equatable {
     var kind: SuggestionTriggerKind
     var utteranceID: UUID
     var excerpt: String
@@ -66,7 +40,7 @@ struct SuggestionTrigger: Sendable, Codable {
 
 // MARK: - Suggestion Evidence
 
-struct SuggestionEvidence: Sendable, Codable {
+struct SuggestionEvidence: Sendable, Codable, Equatable {
     var sourceFile: String
     var headerContext: String
     var text: String
@@ -75,7 +49,7 @@ struct SuggestionEvidence: Sendable, Codable {
 
 // MARK: - Suggestion Decision (Surfacing Gate)
 
-struct SuggestionDecision: Sendable, Codable {
+struct SuggestionDecision: Sendable, Codable, Equatable {
     var shouldSurface: Bool
     var confidence: Double
     var relevanceScore: Double
@@ -96,7 +70,7 @@ enum SuggestionFeedback: String, Codable, Sendable {
 
 // MARK: - KB Result
 
-struct KBResult: Identifiable, Sendable, Codable {
+struct KBResult: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let text: String
     let sourceFile: String
@@ -112,9 +86,142 @@ struct KBResult: Identifiable, Sendable, Codable {
     }
 }
 
+// MARK: - KB Context Pack
+
+/// Rich KB context preserving document structure for display and synthesis.
+struct KBContextPack: Identifiable, Sendable, Codable, Equatable {
+    let id: UUID
+    let matchedText: String
+    let relativePath: String      // e.g. "sales/pricing.md"
+    let folderBreadcrumb: String  // e.g. "sales"
+    let documentTitle: String     // first H1 or filename
+    let headerBreadcrumb: String  // e.g. "Pricing > Unit Economics"
+    let score: Double
+    let previousSiblingText: String?
+    let nextSiblingText: String?
+
+    init(
+        matchedText: String,
+        relativePath: String,
+        folderBreadcrumb: String = "",
+        documentTitle: String = "",
+        headerBreadcrumb: String = "",
+        score: Double,
+        previousSiblingText: String? = nil,
+        nextSiblingText: String? = nil
+    ) {
+        self.id = UUID()
+        self.matchedText = matchedText
+        self.relativePath = relativePath
+        self.folderBreadcrumb = folderBreadcrumb
+        self.documentTitle = documentTitle
+        self.headerBreadcrumb = headerBreadcrumb
+        self.score = score
+        self.previousSiblingText = previousSiblingText
+        self.nextSiblingText = nextSiblingText
+    }
+
+    /// Display breadcrumb: "sales/pricing.md > Pricing > Unit Economics"
+    var displayBreadcrumb: String {
+        var parts: [String] = []
+        if !relativePath.isEmpty { parts.append(relativePath) }
+        if !headerBreadcrumb.isEmpty { parts.append(headerBreadcrumb) }
+        return parts.joined(separator: " > ")
+    }
+}
+
+// MARK: - Realtime Suggestion
+
+enum SuggestionLifecycle: String, Codable, Sendable {
+    case raw         // KB snippet shown, no LLM yet
+    case streaming   // LLM synthesis in progress
+    case completed   // LLM synthesis finished
+    case failed      // LLM call failed, raw snippet preserved
+    case superseded  // Replaced by a newer suggestion
+}
+
+/// A real-time suggestion with stable identity across its lifecycle.
+struct RealtimeSuggestion: Identifiable, Sendable, Equatable {
+    let id: UUID
+    let triggerKind: RealtimeTriggerKind
+    let triggerExcerpt: String
+    let triggerUtteranceID: UUID?
+    let contextPacks: [KBContextPack]
+    let candidateScore: Double
+    let createdAt: Date
+    var lifecycle: SuggestionLifecycle
+    var synthesizedText: String
+
+    /// First context pack's matched text.
+    var rawSnippet: String { contextPacks.first?.matchedText ?? "" }
+
+    init(
+        triggerKind: RealtimeTriggerKind,
+        triggerExcerpt: String,
+        triggerUtteranceID: UUID? = nil,
+        contextPacks: [KBContextPack],
+        candidateScore: Double
+    ) {
+        self.id = UUID()
+        self.triggerKind = triggerKind
+        self.triggerExcerpt = triggerExcerpt
+        self.triggerUtteranceID = triggerUtteranceID
+        self.contextPacks = contextPacks
+        self.candidateScore = candidateScore
+        self.createdAt = .now
+        self.lifecycle = .raw
+        self.synthesizedText = ""
+    }
+
+    /// The best available text for display.
+    var displayText: String {
+        synthesizedText.isEmpty ? rawSnippet : synthesizedText
+    }
+
+    /// The primary source breadcrumb for display.
+    var sourceBreadcrumb: String {
+        contextPacks.first?.displayBreadcrumb ?? ""
+    }
+}
+
+// MARK: - Realtime Suggestion Candidate
+
+/// Output of the local heuristic gate — passed to Layer 3 for synthesis.
+struct RealtimeSuggestionCandidate: Sendable, Equatable {
+    let triggerKind: RealtimeTriggerKind
+    let triggerExcerpt: String
+    let triggerUtteranceID: UUID?
+    let triggerFingerprint: String?
+    let contextPacks: [KBContextPack]
+    let score: Double
+    let createdAt: Date
+
+    init(
+        triggerKind: RealtimeTriggerKind,
+        triggerExcerpt: String,
+        triggerUtteranceID: UUID? = nil,
+        triggerFingerprint: String? = nil,
+        contextPacks: [KBContextPack],
+        score: Double
+    ) {
+        self.triggerKind = triggerKind
+        self.triggerExcerpt = triggerExcerpt
+        self.triggerUtteranceID = triggerUtteranceID
+        self.triggerFingerprint = triggerFingerprint
+        self.contextPacks = contextPacks
+        self.score = score
+        self.createdAt = .now
+    }
+
+    /// Whether this candidate is too old to surface (e.g. KB results arrived after speech moved on).
+    var isStale: Bool {
+        Date.now.timeIntervalSince(createdAt) > 8
+    }
+}
+
 // MARK: - Suggestion
 
-struct Suggestion: Identifiable, Sendable, Codable {
+struct Suggestion: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let text: String
     let timestamp: Date
@@ -156,6 +263,18 @@ struct SessionRecord: Codable {
     let suggestionDecision: SuggestionDecision?
     let surfacedSuggestionText: String?
     let conversationStateSummary: String?
+    let cleanedText: String?
+    // Real-time suggestion tracking
+    let suggestionID: UUID?
+    let triggerUtteranceID: UUID?
+    let suggestionLifecycle: SuggestionLifecycle?
+
+    enum CodingKeys: String, CodingKey {
+        case speaker, text, timestamp, suggestions, kbHits
+        case suggestionDecision, surfacedSuggestionText, conversationStateSummary
+        case cleanedText = "refinedText"
+        case suggestionID, triggerUtteranceID, suggestionLifecycle
+    }
 
     init(
         speaker: Speaker,
@@ -165,7 +284,11 @@ struct SessionRecord: Codable {
         kbHits: [String]? = nil,
         suggestionDecision: SuggestionDecision? = nil,
         surfacedSuggestionText: String? = nil,
-        conversationStateSummary: String? = nil
+        conversationStateSummary: String? = nil,
+        cleanedText: String? = nil,
+        suggestionID: UUID? = nil,
+        triggerUtteranceID: UUID? = nil,
+        suggestionLifecycle: SuggestionLifecycle? = nil
     ) {
         self.speaker = speaker
         self.text = text
@@ -175,10 +298,28 @@ struct SessionRecord: Codable {
         self.suggestionDecision = suggestionDecision
         self.surfacedSuggestionText = surfacedSuggestionText
         self.conversationStateSummary = conversationStateSummary
+        self.cleanedText = cleanedText
+        self.suggestionID = suggestionID
+        self.triggerUtteranceID = triggerUtteranceID
+        self.suggestionLifecycle = suggestionLifecycle
+    }
+
+    func withCleanedText(_ text: String?) -> SessionRecord {
+        SessionRecord(
+            speaker: speaker, text: self.text, timestamp: timestamp,
+            suggestions: suggestions, kbHits: kbHits,
+            suggestionDecision: suggestionDecision,
+            surfacedSuggestionText: surfacedSuggestionText,
+            conversationStateSummary: conversationStateSummary,
+            cleanedText: text,
+            suggestionID: suggestionID,
+            triggerUtteranceID: triggerUtteranceID,
+            suggestionLifecycle: suggestionLifecycle
+        )
     }
 }
 
-// MARK: - Meeting Templates & Enhanced Notes
+// MARK: - Meeting Templates & Generated Notes
 
 struct MeetingTemplate: Identifiable, Codable, Sendable, Hashable {
     let id: UUID
@@ -188,20 +329,114 @@ struct MeetingTemplate: Identifiable, Codable, Sendable, Hashable {
     var isBuiltIn: Bool
 }
 
-struct TemplateSnapshot: Codable, Sendable {
+struct TemplateSnapshot: Codable, Sendable, Equatable {
     let id: UUID
     let name: String
     let icon: String
     let systemPrompt: String
 }
 
-struct EnhancedNotes: Codable, Sendable {
+struct GeneratedNotes: Codable, Sendable {
     let template: TemplateSnapshot
     let generatedAt: Date
     let markdown: String
 }
 
-struct SessionIndex: Identifiable, Codable, Sendable {
+struct NoteAttachment: Codable, Sendable, Equatable, Identifiable {
+    let displayName: String
+    let relativePath: String
+    let contentType: String?
+    let byteSize: Int64
+    let createdAt: Date
+
+    var id: String { relativePath }
+}
+
+enum SessionAudioSourceKind: String, Sendable, Hashable {
+    case recording
+    case system
+    case microphone
+
+    var displayName: String {
+        switch self {
+        case .recording:
+            return "Recording"
+        case .system:
+            return "System audio"
+        case .microphone:
+            return "Microphone"
+        }
+    }
+}
+
+struct SessionAudioSource: Identifiable, Sendable, Hashable {
+    let kind: SessionAudioSourceKind
+    let url: URL
+
+    var id: String { "\(kind.rawValue):\(url.path)" }
+    var displayName: String { kind.displayName }
+}
+
+enum SessionTranscriptIssue: String, Codable, Sendable, Equatable {
+    case noAudioDetected
+    case transcriptionProducedNoText
+
+    var listLabel: String {
+        switch self {
+        case .noAudioDetected:
+            return "No audio captured"
+        case .transcriptionProducedNoText:
+            return "Transcription failed"
+        }
+    }
+
+    var emptyStateTitle: String {
+        switch self {
+        case .noAudioDetected:
+            return "No audio captured"
+        case .transcriptionProducedNoText:
+            return "Transcription failed"
+        }
+    }
+
+    var emptyStateMessage: String {
+        switch self {
+        case .noAudioDetected:
+            return "OpenOats did not capture usable microphone or system audio for this session."
+        case .transcriptionProducedNoText:
+            return "OpenOats captured audio for this session, but live transcription did not produce text."
+        }
+    }
+
+    var sessionEndedBannerText: String {
+        switch self {
+        case .noAudioDetected:
+            return "Session ended · No audio captured"
+        case .transcriptionProducedNoText:
+            return "Session ended · Live transcription failed"
+        }
+    }
+}
+
+enum SessionTranscriptRecoveryState: String, Codable, Sendable, Equatable {
+    case recoveredAfterBatch
+
+    var listLabel: String {
+        switch self {
+        case .recoveredAfterBatch:
+            return "Recovered after batch"
+        }
+    }
+
+    var sessionEndedBannerText: String {
+        switch self {
+        case .recoveredAfterBatch:
+            return "Session recovered after batch"
+        }
+    }
+}
+
+struct SessionIndex: Identifiable, Codable, Sendable, Equatable {
     let id: String
     let startedAt: Date
     var endedAt: Date?
@@ -209,9 +444,27 @@ struct SessionIndex: Identifiable, Codable, Sendable {
     var title: String?
     var utteranceCount: Int
     var hasNotes: Bool
+    /// BCP 47 language/locale used for transcription (e.g. "en-US", "fr-FR").
+    var language: String?
+    /// The detected meeting application name (e.g. "Zoom", "Microsoft Teams").
+    var meetingApp: String?
+    /// The ASR engine used for transcription (e.g. "parakeetV2").
+    var engine: String?
+    /// User-assigned tags for session organization.
+    var tags: [String]?
+    /// Optional slash-separated folder path used to organize sessions in the Notes UI.
+    var folderPath: String? = nil
+    /// How the session was created (nil for live sessions, "imported" for imported audio).
+    var source: String?
+    /// Stronger recurring meeting-family key derived from a calendar series identifier when available.
+    var meetingFamilyKey: String? = nil
+    /// Non-nil when the session ended without a transcript for a known recording/transcription reason.
+    var transcriptIssue: SessionTranscriptIssue? = nil
+    /// Non-nil when a previously failed transcript was later recovered.
+    var transcriptRecovery: SessionTranscriptRecoveryState? = nil
 }
 
 struct SessionSidecar: Codable, Sendable {
     let index: SessionIndex
-    var notes: EnhancedNotes?
+    var notes: GeneratedNotes?
 }

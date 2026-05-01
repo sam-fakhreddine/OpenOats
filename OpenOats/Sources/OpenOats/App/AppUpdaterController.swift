@@ -5,16 +5,28 @@ import Sparkle
 final class AppUpdaterController {
     let updater: SPUUpdater
     private let userDriver: OpenOatsUserDriver
+    private let delegateProxy: AppUpdaterDelegateProxy
+    private var shouldRestoreAccessoryModeAfterUpdateCycle = false
 
-    init() {
+    init(startUpdater: Bool = true) {
         let hostBundle = Bundle.main
+        delegateProxy = AppUpdaterDelegateProxy()
         userDriver = OpenOatsUserDriver(hostBundle: hostBundle, delegate: nil)
         updater = SPUUpdater(
             hostBundle: hostBundle,
             applicationBundle: hostBundle,
             userDriver: userDriver,
-            delegate: nil
+            delegate: delegateProxy
         )
+        delegateProxy.owner = self
+
+        guard startUpdater else { return }
+
+        // Sparkle requires a bundled app with an Info.plist (feed URL, version,
+        // etc.). When running unbundled (e.g. via `swift run`), starting the
+        // updater throws and surfaces a modal error dialog on every launch.
+        // Skip silently in that case so developers can run from source.
+        guard Bundle.main.bundleIdentifier != nil else { return }
 
         do {
             try updater.start()
@@ -28,6 +40,31 @@ final class AppUpdaterController {
         alert.messageText = "Unable to Check For Updates"
         alert.informativeText = "The updater failed to start. Please verify you have the latest version of OpenOats and contact the developer if the issue persists."
         alert.runModal()
+    }
+
+    func checkForUpdatesFromMenuBar() {
+        let launchedFromAccessoryMode = NSApp.activationPolicy() == .accessory
+        shouldRestoreAccessoryModeAfterUpdateCycle = launchedFromAccessoryMode
+
+        if launchedFromAccessoryMode {
+            NSApp.setActivationPolicy(.regular)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        updater.checkForUpdates()
+    }
+
+    fileprivate func handleUpdateCycleFinished() {
+        guard shouldRestoreAccessoryModeAfterUpdateCycle else { return }
+        shouldRestoreAccessoryModeAfterUpdateCycle = false
+
+        let hasVisibleWindows = NSApp.windows.contains { window in
+            window.isVisible && !window.isMiniaturized
+        }
+
+        if !hasVisibleWindows {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }
 
@@ -123,5 +160,13 @@ final class OpenOatsUserDriver: SPUStandardUserDriver {
         """
 
         return ("Allow \(appName) to Install Updates", message)
+    }
+}
+
+private final class AppUpdaterDelegateProxy: NSObject, SPUUpdaterDelegate {
+    weak var owner: AppUpdaterController?
+
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
+        owner?.handleUpdateCycleFinished()
     }
 }
