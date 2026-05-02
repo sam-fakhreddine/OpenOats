@@ -211,8 +211,8 @@ public actor FluidVadManager: VadManager {
     private func calculateNoiseFloor() -> Float {
         guard energyHistoryCount > 0 else { return 0.01 }
 
-        // Collect valid elements from ring buffer
-        let validHistory = Array(energyHistory.prefix(energyHistoryCount))
+        // O(1) slice - no copy, just view into ring buffer
+        let validHistory = energyHistory[0..<energyHistoryCount]
 
         // Sort energy history to find percentile
         let sorted = validHistory.sorted()
@@ -226,11 +226,9 @@ public actor FluidVadManager: VadManager {
     private func calculateSmoothedProbability() -> Float {
         guard probabilityCount > 0 else { return 0.0 }
 
-        // Collect valid elements from ring buffer for vDSP calculation
-        let validBuffer = Array(probabilityBuffer.prefix(probabilityCount))
-
+        // O(1) - use vDSP directly on ring buffer without copying
         var mean: Float = 0
-        vDSP_meanv(validBuffer, 1, &mean, vDSP_Length(validBuffer.count))
+        vDSP_meanv(probabilityBuffer, 1, &mean, vDSP_Length(probabilityCount))
 
         return mean
     }
