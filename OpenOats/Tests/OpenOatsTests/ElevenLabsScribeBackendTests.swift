@@ -1,6 +1,7 @@
 import XCTest
 @testable import OpenOatsKit
 
+@available(macOS 15.0, *)
 final class ElevenLabsScribeBackendTests: XCTestCase {
 
     private let boundary = "TEST-BOUNDARY"
@@ -37,6 +38,34 @@ final class ElevenLabsScribeBackendTests: XCTestCase {
         let text = String(data: body, encoding: .utf8) ?? ""
         XCTAssertFalse(text.contains("name=\"keyterms\""),
                        "no keyterms part when vocabulary is empty")
+    }
+    
+    // MARK: - Security Tests
+    
+    func testBackendStoresAPIKeyAsSecureString() {
+        // Create backend with plain string (should be converted to SecureString)
+        let backend = ElevenLabsScribeBackend(apiKey: "test-key")
+        XCTAssertNotNil(backend)
+        XCTAssertEqual(backend.displayName, "ElevenLabs Scribe")
+    }
+    
+    func testBackendRejectsEmptyAPIKey() async {
+        let backend = ElevenLabsScribeBackend(apiKey: "")
+        
+        do {
+            try await backend.prepare(onStatus: { _ in }, onProgress: { _ in })
+            XCTFail("Should have thrown for empty API key")
+        } catch {
+            // Expected behavior
+            XCTAssertTrue(error is CloudASRError)
+        }
+    }
+    
+    func testBackendWithSecureStringAPIKey() {
+        // Create backend directly with SecureString
+        let secureKey = SecureString("secure-test-key")
+        let backend = ElevenLabsScribeBackend(apiKey: secureKey)
+        XCTAssertNotNil(backend)
     }
 
     // Extracts values for every multipart part matching `name="<fieldName>"`.

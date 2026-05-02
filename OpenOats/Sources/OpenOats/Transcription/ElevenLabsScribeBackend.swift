@@ -4,11 +4,19 @@ import os
 // MARK: - ElevenLabs Scribe Backend
 
 /// Cloud transcription backend using the ElevenLabs Scribe v2 REST API.
+/// 
+/// Security features:
+/// - SecureString for API key storage (XOR obfuscation, zero-on-deinit)
+/// - SecureURLConstruction for safe URL building (no force unwraps)
+/// - Path traversal protection on all URL paths
+///
 /// @unchecked Sendable: session and prepared are written once in prepare() before any transcribe() calls.
+@available(macOS 15.0, *)
 final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName = "ElevenLabs Scribe"
 
-    private let apiKey: String
+    /// API key stored as SecureString (never plain String)
+    private let apiKey: SecureString
     private let keyterms: [String]
     private let removeFillerWords: Bool
     private let session: URLSession
@@ -18,11 +26,24 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
     // MARK: - Init
 
-    init(apiKey: String, customVocabulary: String = "", removeFillerWords: Bool = false) {
+    /// Creates a new ElevenLabs Scribe backend with secure API key storage.
+    ///
+    /// - Parameters:
+    ///   - apiKey: API key as a SecureString (preferred) or plain String
+    ///   - customVocabulary: Custom vocabulary for transcription
+    ///   - removeFillerWords: Whether to filter filler words
+    init(apiKey: SecureString, customVocabulary: String = "", removeFillerWords: Bool = false) {
         self.apiKey = apiKey
         self.keyterms = Self.parseKeyterms(customVocabulary)
         self.removeFillerWords = removeFillerWords
         self.session = URLSession(configuration: .ephemeral)
+    }
+
+    /// Creates a new ElevenLabs Scribe backend with plain string API key.
+    /// - Warning: Prefer the SecureString variant for production code.
+    convenience init(apiKey: String, customVocabulary: String = "", removeFillerWords: Bool = false) {
+        let secureKey = SecureString(apiKey)
+        self.init(apiKey: secureKey, customVocabulary: customVocabulary, removeFillerWords: removeFillerWords)
     }
 
     // MARK: - TranscriptionBackend
@@ -35,7 +56,9 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         onStatus: @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        guard !apiKey.isEmpty else {
+        // Validate API key is not empty using secure access
+        let isEmpty = apiKey.withSecureAccess { $0.isEmpty }
+        guard !isEmpty else {
             throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
         }
 
@@ -43,9 +66,24 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
         // Validate using /v1/voices — universally accessible with any valid key,
         // unlike /v1/user which requires elevated account permissions.
-        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/voices")!)
+        // SEC-002: Use SecureURLConstruction with Result type (no force unwrap)
+        let urlResult = Self.secureElevenLabsURL(path: "/v1/voices")
+        
+        let voicesURL: URL
+        switch urlResult {
+        case .success(let url):
+            voicesURL = url
+        case .failure:
+            throw CloudASRError.httpError(statusCode: 500)
+        }
+        
+        var request = URLRequest(url: voicesURL)
         request.httpMethod = "GET"
-        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+        
+        // SEC-003: Use withSecureAccess to set API key in header
+        apiKey.withSecureAccess { key in
+            request.setValue(key, forHTTPHeaderField: "xi-api-key")
+        }
 
         let (_, response) = try await session.data(for: request)
 
@@ -86,9 +124,25 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         // 3. POST to speech-to-text endpoint
         try Task.checkCancellation()
 
-        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+        // SEC-004: Use SecureURLConstruction with Result type
+        let urlResult = Self.secureElevenLabsURL(path: "/v1/speech-to-text")
+        
+        let sttURL: URL
+        switch urlResult {
+        case .success(let url):
+            sttURL = url
+        case .failure:
+            throw CloudASRError.httpError(statusCode: 500)
+        }
+        
+        var request = URLRequest(url: sttURL)
         request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+        
+        // SEC-005: Use withSecureAccess to set API key
+        apiKey.withSecureAccess { key in
+            request.setValue(key, forHTTPHeaderField: "xi-api-key")
+        }
+        
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         request.timeoutInterval = 30
@@ -160,6 +214,17 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         return body
+    }
+
+    // MARK: - Secure URL Construction
+    
+    /// Constructs a secure ElevenLabs API URL with path validation.
+    ///
+    /// - Parameter path: API path (e.g., "/v1/voices", "/v1/speech-to-text")
+    /// - Returns: Result containing safe URL or construction error
+    /// - Security: Uses SecureURLConstruction (no force unwraps, path traversal protection)
+    private static func secureElevenLabsURL(path: String) -> Result<URL, SecureURLConstruction.Error> {
+        SecureURLConstruction.elevenLabsAPIURL(path: path)
     }
 
     // MARK: - Private: Keyterms Parser

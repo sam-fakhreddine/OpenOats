@@ -1,0 +1,117 @@
+{
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 11,
+      "description": "API key stored as plain String instead of SecureString (DPS-8 SEC-006 violation)",
+      "recommendation": "Change 'private let apiKey: String' to 'private let secureAPIKey: SecureString' and use withSecureAccess pattern like AssemblyAIBackend"
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 21,
+      "description": "init accepts API key as plain String parameter (DPS-8 SEC-006 violation)",
+      "recommendation": "Change init parameter to accept SecureString or wrap immediately: 'self.secureAPIKey = SecureString(apiKey)'"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Intelligence/VoyageClient.swift",
+      "line": 109,
+      "description": "URL string concatenation without encoding - vulnerable to URL injection (DPS-8 SEC-004 violation)",
+      "recommendation": "Use URLComponents or SecureURLConstruction.url(baseURL:appendingPathComponents:) with proper path encoding instead of string concatenation"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 46,
+      "description": "Hardcoded URL with force unwrap anti-pattern (URL(string:)!)",
+      "recommendation": "Use SecureURLConstruction pattern or at minimum handle URL creation failure gracefully instead of force unwrap"
+    },
+    {
+      "severity": "HIGH",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 89,
+      "description": "Hardcoded URL with force unwrap anti-pattern (URL(string:)!)",
+      "recommendation": "Use SecureURLConstruction pattern or at minimum handle URL creation failure gracefully instead of force unwrap"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "line": 384,
+      "description": "URL created from external response data without validation (urlString from JSON response)",
+      "recommendation": "Validate URL scheme (https only) and host before using URLs from external sources"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "line": 192,
+      "description": "URL created from external response data without validation (upload_url from JSON)",
+      "recommendation": "Validate URL scheme (https only) and host (.assemblyai.com) before using URLs from external sources"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Intelligence/VoyageClient.swift",
+      "line": 23,
+      "description": "Function accepts API key as plain String parameter (DPS-8 SEC-006 violation)",
+      "recommendation": "Accept SecureString instead and use withSecureAccess pattern for API calls"
+    },
+    {
+      "severity": "MEDIUM",
+      "file": "OpenOats/Sources/OpenOats/Intelligence/VoyageClient.swift",
+      "line": 113,
+      "description": "API key interpolated directly into HTTP header without sanitization check",
+      "recommendation": "Validate API key format before use and consider using SecureString.withSecureAccess pattern"
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 48,
+      "description": "API key set directly in HTTP header from plain String storage",
+      "recommendation": "Use withSecureAccess pattern to temporarily expose key only during request"
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 91,
+      "description": "API key set directly in HTTP header from plain String storage",
+      "recommendation": "Use withSecureAccess pattern to temporarily expose key only during request"
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Security/SecureString.swift",
+      "line": 202,
+      "description": "URL(string:) used in security utility without validation fallback",
+      "recommendation": "While internal helper, should validate baseURL format before force unwrap"
+    },
+    {
+      "severity": "LOW",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Security/SecureString.swift",
+      "line": 240,
+      "description": "URL(string:) used in security utility without validation fallback",
+      "recommendation": "While internal helper, should validate baseURL format before force unwrap"
+    }
+  ],
+  "high_critical_count": 5,
+  "scan_complete": true,
+  "scan_summary": {
+    "files_scanned": 8,
+    "patterns_checked": [
+      "URL string interpolation",
+      "API keys as plain String",
+      "Path traversal vulnerabilities",
+      "Unsafe memory access"
+    ],
+    "total_findings": 13,
+    "critical_count": 2,
+    "high_count": 3,
+    "medium_count": 4,
+    "low_count": 4
+  },
+  "recommendations": [
+    "Prioritize fixing ElevenLabsScribeBackend - migrate to SecureString pattern like AssemblyAIBackend",
+    "Fix VoyageClient URL construction to use URLComponents or SecureURLConstruction",
+    "Add URL validation for external URLs (check scheme=https and expected host)",
+    "Consider audit of all apiKey: String parameters across codebase"
+  ]
+}

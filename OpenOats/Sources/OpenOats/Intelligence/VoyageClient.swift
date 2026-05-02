@@ -1,6 +1,8 @@
 import Foundation
 
 /// REST client for Voyage AI embeddings and reranking APIs.
+/// Uses secure patterns: SecureString for API keys and SecureURLConstruction for URLs.
+@available(macOS 15.0, *)
 actor VoyageClient {
     private let baseURL = "https://api.voyageai.com/v1"
 
@@ -8,20 +10,33 @@ actor VoyageClient {
         case httpError(Int, String)
         case decodingError
         case emptyResponse
+        case invalidURL
+        case pathTraversalDetected
 
         var errorDescription: String? {
             switch self {
             case .httpError(let code, let msg): "Voyage AI error (HTTP \(code)): \(msg)"
             case .decodingError: "Failed to decode Voyage AI response"
             case .emptyResponse: "Empty response from Voyage AI"
+            case .invalidURL: "Failed to construct valid URL"
+            case .pathTraversalDetected: "Path traversal detected in request"
             }
         }
     }
 
     // MARK: - Embeddings
 
+    /// Fetches embeddings for the provided texts using secure API patterns.
+    ///
+    /// - Parameters:
+    ///   - apiKey: The API key as a SecureString (never store as plain String)
+    ///   - texts: Texts to embed
+    ///   - inputType: Type of input (e.g., "document", "query")
+    ///   - model: Model name
+    ///   - dimensions: Output dimensions
+    /// - Returns: Array of embedding vectors
     func embed(
-        apiKey: String,
+        apiKey: SecureString,
         texts: [String],
         inputType: String,
         model: String = "voyage-4-lite",
@@ -34,11 +49,14 @@ actor VoyageClient {
             output_dimension: dimensions
         )
 
-        let data = try await post(
-            path: "/embeddings",
-            apiKey: apiKey,
-            body: body
-        )
+        // Use withSecureAccess to temporarily access the API key
+        let data = try await apiKey.withSecureAccess { key in
+            try await self.post(
+                path: "/embeddings",
+                apiKey: key,
+                body: body
+            )
+        }
 
         let response = try JSONDecoder().decode(EmbedResponse.self, from: data)
         guard !response.data.isEmpty else { throw VoyageError.emptyResponse }
@@ -49,10 +67,38 @@ actor VoyageClient {
             .map { $0.embedding }
     }
 
+    /// Fetches embeddings using a plain String API key (for backwards compatibility).
+    /// - Warning: Prefer the SecureString variant for production code.
+    func embed(
+        apiKey: String,
+        texts: [String],
+        inputType: String,
+        model: String = "voyage-4-lite",
+        dimensions: Int = 256
+    ) async throws -> [[Float]] {
+        let secureKey = SecureString(apiKey)
+        return try await embed(
+            apiKey: secureKey,
+            texts: texts,
+            inputType: inputType,
+            model: model,
+            dimensions: dimensions
+        )
+    }
+
     // MARK: - Reranking
 
+    /// Reranks documents using secure API patterns.
+    ///
+    /// - Parameters:
+    ///   - apiKey: The API key as a SecureString
+    ///   - query: The query string
+    ///   - documents: Documents to rerank
+    ///   - topN: Number of top results to return
+    ///   - model: Reranking model name
+    /// - Returns: Array of (index, score) tuples
     func rerank(
-        apiKey: String,
+        apiKey: SecureString,
         query: String,
         documents: [String],
         topN: Int = 5,
@@ -65,17 +111,38 @@ actor VoyageClient {
             top_k: topN
         )
 
-        let data = try await post(
-            path: "/rerank",
-            apiKey: apiKey,
-            body: body
-        )
+        let data = try await apiKey.withSecureAccess { key in
+            try await self.post(
+                path: "/rerank",
+                apiKey: key,
+                body: body
+            )
+        }
 
         let response = try JSONDecoder().decode(RerankResponse.self, from: data)
         return response.data.map { (index: $0.index, score: $0.relevance_score) }
     }
 
-    // MARK: - HTTP
+    /// Reranks documents using a plain String API key (for backwards compatibility).
+    /// - Warning: Prefer the SecureString variant for production code.
+    func rerank(
+        apiKey: String,
+        query: String,
+        documents: [String],
+        topN: Int = 5,
+        model: String = "rerank-2.5-lite"
+    ) async throws -> [(index: Int, score: Double)] {
+        let secureKey = SecureString(apiKey)
+        return try await rerank(
+            apiKey: secureKey,
+            query: query,
+            documents: documents,
+            topN: topN,
+            model: model
+        )
+    }
+
+    // MARK: - HTTP Helpers
 
     nonisolated static func describeHTTPError(statusCode: Int, data: Data) -> (message: String, retryable: Bool) {
         let detail = extractErrorDetail(from: data)
@@ -100,13 +167,33 @@ actor VoyageClient {
         return ("Unknown error", false)
     }
 
+    /// Performs a POST request with secure URL construction.
+    ///
+    /// Uses SecureURLConstruction to prevent path traversal attacks.
     private func post<T: Encodable>(
         path: String,
         apiKey: String,
         body: T,
         retryOn429: Bool = true
     ) async throws -> Data {
-        let url = URL(string: baseURL + path)!
+        // SEC-001: Use SecureURLConstruction to prevent URL injection
+        let result = SecureURLConstruction.build(
+            baseURL: baseURL,
+            path: path
+        )
+        
+        let url: URL
+        switch result {
+        case .success(let safeURL):
+            url = safeURL
+        case .failure(let error):
+            if case SecureURLConstruction.Error.pathTraversalDetected = error {
+                throw VoyageError.pathTraversalDetected
+            } else {
+                throw VoyageError.invalidURL
+            }
+        }
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

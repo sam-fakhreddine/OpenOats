@@ -1,0 +1,181 @@
+{
+  "scan_metadata": {
+    "scan_date": "2026-05-01",
+    "scanner": "Swift Security Specialist",
+    "target_files": [
+      "OpenOats/Sources/OpenOats/Transcription/*Backend.swift",
+      "OpenOats/Sources/OpenOats/Infrastructure/**/*.swift"
+    ],
+    "total_files_scanned": 35,
+    "findings_count": 8
+  },
+  "findings": [
+    {
+      "id": "SEC-001",
+      "severity": "CRITICAL",
+      "category": "API_KEY_PLAIN_STRING",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 11,
+      "column": 5,
+      "description": "API key stored as plain String instead of SecureString. The ElevenLabsScribeBackend stores the API key as a plain String property, which leaves it vulnerable to memory dumps and crash reports.",
+      "code_snippet": "private let apiKey: String",
+      "fix_recommendation": "Replace with SecureString type: 'private let secureAPIKey: SecureString'. Update the initializer to wrap the incoming String in SecureString immediately. Use withSecureAccess pattern when accessing the key for API calls.",
+      "cwe": "CWE-312: Cleartext Storage of Sensitive Information",
+      "cvss_score": 7.5
+    },
+    {
+      "id": "SEC-002",
+      "severity": "CRITICAL",
+      "category": "API_KEY_PLAIN_STRING_INIT",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 21,
+      "column": 5,
+      "description": "Initializer accepts API key as plain String parameter without immediate wrapping in SecureString. This allows the plain key to exist in memory longer than necessary.",
+      "code_snippet": "init(apiKey: String, customVocabulary: String = \"\", removeFillerWords: Bool = false) {\n        self.apiKey = apiKey",
+      "fix_recommendation": "Change parameter to SecureString or wrap immediately: 'self.secureAPIKey = SecureString(apiKey)'. Follow the pattern used in AssemblyAIBackend.swift.",
+      "cwe": "CWE-312: Cleartext Storage of Sensitive Information",
+      "cvss_score": 7.5
+    },
+    {
+      "id": "SEC-003",
+      "severity": "HIGH",
+      "category": "URL_FORCE_UNWRAP",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 46,
+      "column": 45,
+      "description": "Force unwrapped URL construction for API endpoint. Using force unwrap (!) on URL creation can cause runtime crashes if the URL string is malformed. While this is a hardcoded string, it violates safe coding practices.",
+      "code_snippet": "var request = URLRequest(url: URL(string: \"https://api.elevenlabs.io/v1/voices\")!)",
+      "fix_recommendation": "Use URLComponents or at least guard-let with proper error handling. Consider: 'guard let url = URL(string: \"https://api.elevenlabs.io/v1/voices\") else { throw CloudASRError.invalidUploadURL }'",
+      "cwe": "CWE-394: Unexpected State in Expression",
+      "cvss_score": 5.3
+    },
+    {
+      "id": "SEC-004",
+      "severity": "HIGH",
+      "category": "URL_FORCE_UNWRAP",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "line": 89,
+      "column": 45,
+      "description": "Force unwrapped URL construction for speech-to-text API endpoint. Runtime crash risk if URL construction fails.",
+      "code_snippet": "var request = URLRequest(url: URL(string: \"https://api.elevenlabs.io/v1/speech-to-text\")!)",
+      "fix_recommendation": "Use SecureURLConstruction pattern from AssemblyAIBackend.swift or guard-let with proper error handling.",
+      "cwe": "CWE-394: Unexpected State in Expression",
+      "cvss_score": 5.3
+    },
+    {
+      "id": "SEC-005",
+      "severity": "MEDIUM",
+      "category": "DATA_FORCE_UNWRAP",
+      "file": "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+      "lines": [161, 211, 212, 213, 214, 224, 225, 226, 227, 229],
+      "description": "Multiple force unwrapped Data conversions in multipart form construction. String.data(using: .utf8) returns optional Data, but code force unwraps with !. While UTF-8 encoding of ASCII strings rarely fails, this is unsafe practice.",
+      "code_snippet": "body.append(\"--\\(boundary)--\\r\\n\".data(using: .utf8)!)",
+      "fix_recommendation": "Replace all force unwraps with guard-let or use a safe helper: 'guard let data = value.data(using: .utf8) else { throw EncodingError.failed }'",
+      "cwe": "CWE-394: Unexpected State in Expression",
+      "cvss_score": 4.3
+    },
+    {
+      "id": "SEC-006",
+      "severity": "MEDIUM",
+      "category": "URL_FORCE_UNWRAP_STATIC",
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/CloudTranscriptionConfiguration.swift",
+      "lines": [29, 31, 33],
+      "description": "Force unwrapped URLs in CloudProvider.defaultEndpoint computed property. While these are hardcoded valid URLs, force unwrap creates unnecessary crash risk and sets a bad example for pattern following.",
+      "code_snippet": "case .assemblyAI:\n            return URL(string: \"https://api.assemblyai.com/v2\")!",
+      "fix_recommendation": "Store URLs as static constants computed once, or use guard-let: 'static let assemblyAIEndpoint: URL = { guard let url = URL(string: \"...\") else { fatalError(\"Invalid URL\") }; return url }()'",
+      "cwe": "CWE-394: Unexpected State in Expression",
+      "cvss_score": 3.7
+    },
+    {
+      "id": "SEC-007",
+      "severity": "LOW",
+      "category": "DATA_FORCE_UNWRAP",
+      "file": "OpenOats/Sources/OpenOats/Storage/SessionRepository.swift",
+      "line": 346,
+      "column": 35,
+      "description": "Force unwrapped Data conversion for newline character in file writing. Minimal risk as newline is valid ASCII.",
+      "code_snippet": "fileHandle.write(\"\\n\".data(using: .utf8)!)",
+      "fix_recommendation": "Use safe unwrap or pre-computed constant: 'let newlineData = \"\\n\".data(using: .utf8) ?? Data()'",
+      "cwe": "CWE-394: Unexpected State in Expression",
+      "cvss_score": 2.1
+    },
+    {
+      "id": "SEC-008",
+      "severity": "LOW",
+      "category": "URL_FORCE_UNWRAP_STATIC",
+      "file": "OpenOats/Sources/OpenOats/Wizard/ProviderSetupStepView.swift",
+      "lines": [109, 139, 269],
+      "description": "Force unwrapped static URLs in wizard view for external links. These are hardcoded documentation/provider URLs, but should still use safe patterns.",
+      "code_snippet": "destination: URL(string: \"https://openrouter.ai/keys\")!",
+      "fix_recommendation": "Use computed static properties with proper validation or use Link views with string URLs which handle the conversion safely.",
+      "cwe": "CWE-394: Unexpected State in Expression",
+      "cvss_score": 2.1
+    }
+  ],
+  "summary": {
+    "critical": 2,
+    "high": 2,
+    "medium": 2,
+    "low": 2,
+    "info": 0,
+    "total": 8
+  },
+  "recommendations": [
+    {
+      "priority": "P0",
+      "title": "Migrate ElevenLabsScribeBackend to SecureString",
+      "description": "ElevenLabsScribeBackend should follow the security pattern established in AssemblyAIBackend.swift. Replace 'private let apiKey: String' with 'private let secureAPIKey: SecureString' and update all access points to use withSecureAccess pattern.",
+      "affected_files": [
+        "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift"
+      ]
+    },
+    {
+      "priority": "P1",
+      "title": "Eliminate URL Force Unwraps",
+      "description": "Replace all force unwrapped URL constructions with proper guard-let error handling or use SecureURLConstruction pattern. Priority focus on ElevenLabsScribeBackend.swift and CloudTranscriptionConfiguration.swift.",
+      "affected_files": [
+        "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+        "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/CloudTranscriptionConfiguration.swift"
+      ]
+    },
+    {
+      "priority": "P2",
+      "title": "Safe Data Conversion Pattern",
+      "description": "Establish a project-wide rule to never use .data(using: .utf8)!. Create a String extension that provides a safe conversion with throw-on-failure semantics.",
+      "affected_files": [
+        "OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift",
+        "OpenOats/Sources/OpenOats/Storage/SessionRepository.swift"
+      ]
+    },
+    {
+      "priority": "P2",
+      "title": "Security Audit nonisolated(unsafe) Usage",
+      "description": "While nonisolated(unsafe) is used appropriately for SwiftUI @ObservationIgnored backing storage, ensure no sensitive data (API keys) is stored in these properties. SettingsStore.swift stores API keys in these properties - consider using SecureString there as well.",
+      "affected_files": [
+        "OpenOats/Sources/OpenOats/Settings/SettingsStore.swift"
+      ]
+    }
+  ],
+  "positive_security_patterns_found": [
+    {
+      "file": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "pattern": "SecureString usage",
+      "description": "Properly uses SecureString for API key storage with withSecureAccess pattern"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Protocols/SecureURLConstruction.swift",
+      "pattern": "Path traversal protection",
+      "description": "Comprehensive URL construction with path traversal prevention and domain validation"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Security/SecureString.swift",
+      "pattern": "Memory security",
+      "description": "SecureString implementation with XOR obfuscation, zero-on-deinit, and ~Copyable semantics"
+    },
+    {
+      "file": "OpenOats/Sources/OpenOats/Infrastructure/Services/Cloud/AssemblyAITranscriptionService.swift",
+      "pattern": "SecureURLConstruction usage",
+      "description": "Uses SecureURLConstruction for all API endpoint URLs, preventing injection attacks"
+    }
+  ]
+}

@@ -1008,7 +1008,7 @@ final class TranscriptionEngine {
                     diarContinuation.yield(b)
                     guard let channelData = buffer.floatChannelData else { continue }
                     let frameCount = Int(buffer.frameLength)
-                    sysAudioTime.add(Double(frameCount) / buffer.format.sampleRate)
+                    await sysAudioTime.add(Double(frameCount) / buffer.format.sampleRate)
                     diarBuf.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: frameCount))
                     if diarBuf.count >= diarFlushSize {
                         let batch = diarBuf
@@ -1055,7 +1055,7 @@ final class TranscriptionEngine {
                     let speaker: Speaker
                     if let dm = self?.diarizationManager {
                         // Estimate segment time: each onFinal is ~3-5s of speech
-                        let endTime = sysAudioTime.value
+                        let endTime = await sysAudioTime.value
                         let startTime = max(0, endTime - 5.0)
                         speaker = await dm.dominantSpeaker(from: startTime, to: endTime)
                     } else {
@@ -1387,39 +1387,4 @@ final class TranscriptionEngine {
         let rem = s % 60
         return rem > 0 ? "\(m)m \(rem)s remaining" : "\(m)m remaining"
     }
-}
-
-// MARK: - Swift 6.2 Concurrency Fixes
-
-/// Concrete actor implementation of the VadManager protocol.
-/// Replaces the non-instantiable protocol type `any VadManager()`.
-public actor FluidVadManager: VadManager {
-    public init() {}
-
-    public func makeStreamState() async -> VadStreamState {
-        VadStreamState()
-    }
-
-    public func processStreamingChunk(
-        _ samples: [Float],
-        state: VadStreamState,
-        config: VadConfig,
-        returnSeconds: Bool,
-        timeResolution: Int
-    ) async throws -> VadResult {
-        // Stub implementation - actual VAD logic to be added
-        VadResult(state: state, event: nil, seconds: nil)
-    }
-}
-
-/// Thread-safe actor for accumulating audio time in diarization.
-/// Replaces the non-existent SyncDouble type for Swift 6 compliance.
-actor SyncDouble {
-    private var _value: Double = 0
-
-    func add(_ delta: Double) {
-        _value += delta
-    }
-
-    nonisolated var value: Double { _value }
 }

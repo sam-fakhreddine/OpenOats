@@ -1,0 +1,30 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-plan",
+  "to_skill": "wfc-implement",
+  "step": "plan",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/pipeline/plan-output.json",
+    "human": "TASKS.md"
+  },
+  "payload": {
+    "plan_dir": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_review001-fixes_20260501_180833",
+    "plan_audit_path": "/Users/samfakhreddine/repos/OpenOats/.wfc/plans/plan_review001-fixes_20260501_180833/plan-audit.json",
+    "task_count": 12,
+    "property_count": 11,
+    "validation_status": "passed",
+    "source_review": ".wfc/reviews/REVIEW-feat-3tier-clean-architecture-001.md",
+    "review_driven": true,
+    "blocking_findings_addressed": 6,
+    "recommended_next_skill": "wfc-implement",
+    "execution_strategy": "parallel_with_canary",
+    "waves": [
+      {"wave": 1, "tasks": ["TASK-001", "TASK-002", "TASK-003", "TASK-004"], "focus": "Critical Fixes"},
+      {"wave": 2, "tasks": ["TASK-005", "TASK-006", "TASK-007"], "focus": "Performance & Concurrency"},
+      {"wave": 3, "tasks": ["TASK-008", "TASK-009", "TASK-010", "TASK-011", "TASK-012"], "focus": "Reliability"}
+    ]
+  }
+}
