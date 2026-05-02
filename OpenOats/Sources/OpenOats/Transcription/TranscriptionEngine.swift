@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreAudio
 import FluidAudio
+import Foundation
 import Observation
 import os
 
@@ -194,6 +195,8 @@ final class TranscriptionEngine {
     private var sysTask: Task<Void, Never>?
     /// Keeps the mic stream alive for the audio level meter when transcription isn't running.
     private var micKeepAliveTask: Task<Void, Never>?
+    /// Diarization task that can be cancelled when stopping transcription.
+    private var diarizationTask: Task<Void, Never>?
 
     /// Separate backend instances for mic and system audio.
     /// Parakeet keeps mutable decoder state per manager, so mic and system audio
@@ -274,8 +277,8 @@ final class TranscriptionEngine {
             return nil
         }
 
-        let apiKey = settings.cloudASRApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !apiKey.isEmpty else {
+        let secureApiKey = SecureString(settings.cloudASRApiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !secureApiKey.isEmpty else {
             let issue = StartPreflightIssue(
                 message: "Missing \(transcriptionModel.displayName) API key. Check Settings > Transcription."
             )
@@ -289,7 +292,7 @@ final class TranscriptionEngine {
         do {
             let backend = transcriptionModel.makeBackend(
                 customVocabulary: settings.transcriptionCustomVocabulary,
-                apiKey: apiKey,
+                apiKey: secureApiKey,
                 removeFillerWords: settings.removeFillerWords,
                 modelStorageURL: settings.modelStorageURL
             )
@@ -362,7 +365,7 @@ final class TranscriptionEngine {
         inputDeviceID: AudioDeviceID = 0,
         transcriptionModel: TranscriptionModel,
         sessionID: String? = nil
-    ) async {
+    ) async throws {
         Log.transcription.info("start() called, isRunning=\(self.isRunning, privacy: .public)")
         guard !isRunning, downloadProgress == nil else { return }
         lastError = nil
@@ -409,8 +412,10 @@ final class TranscriptionEngine {
         }
 
         guard let vadManager else {
+            micBackend = nil
+            systemBackend = nil
             activeTranscriptionSession = nil
-            return
+            throw TranscriptionError.vadManagerNotInitialized
         }
 
         // 2. Start mic capture with health check
@@ -472,7 +477,7 @@ final class TranscriptionEngine {
 
     private func initializeTranscriptionBackends(transcriptionModel: TranscriptionModel) async throws {
         let vocab = settings.transcriptionCustomVocabulary
-        let apiKey = settings.cloudASRApiKey
+        let secureApiKey = SecureString(settings.cloudASRApiKey)
         let noFiller = settings.removeFillerWords
 
         let mic: any TranscriptionBackend
@@ -484,7 +489,7 @@ final class TranscriptionEngine {
         } else {
             mic = transcriptionModel.makeBackend(
                 customVocabulary: vocab,
-                apiKey: apiKey,
+                apiKey: secureApiKey,
                 removeFillerWords: noFiller,
                 modelStorageURL: settings.modelStorageURL
             )
@@ -499,7 +504,7 @@ final class TranscriptionEngine {
         } else {
             let sys = transcriptionModel.makeBackend(
                 customVocabulary: vocab,
-                apiKey: apiKey,
+                apiKey: secureApiKey,
                 removeFillerWords: noFiller,
                 modelStorageURL: settings.modelStorageURL
             )
@@ -819,6 +824,8 @@ final class TranscriptionEngine {
         micTask = nil
         sysTask = nil
         micKeepAliveTask = nil
+        diarizationTask?.cancel()
+        diarizationTask = nil
         Task { await systemCapture.stop() }
         Task { await micCapture.stop() }
         currentMicDeviceID = 0
@@ -999,7 +1006,7 @@ final class TranscriptionEngine {
             let diarFlushSize = 16000
             let originalSysStream = sysStream
             let (diarTapped, diarContinuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
-            Task {
+            self.diarizationTask = Task {
                 let safeDm = dm
                 var diarizationRelay = DiarizationFeedRelay()
                 var diarBuf: [Float] = []

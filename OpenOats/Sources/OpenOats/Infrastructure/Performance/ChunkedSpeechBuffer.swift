@@ -218,7 +218,7 @@ public actor VDSPChunkedSpeechBuffer {
             
             if written > 0 {
                 activeChunks[activeChunks.count - 1] = currentChunk
-                samplesRemaining = Array(samplesRemaining.dropFirst(written))
+                samplesRemaining = samplesRemaining[written...]
             }
         }
         
@@ -570,7 +570,7 @@ public actor VDSPChunkedSpeechBuffer {
 // MARK: - Convenience Extensions
 
 @available(macOS 15.0, *)
-extension ChunkedSpeechBuffer {
+extension VDSPChunkedSpeechBuffer {
     
     /// Write samples from AVAudioPCMBuffer
     public func write(pcmBuffer: AVAudioPCMBuffer) async {

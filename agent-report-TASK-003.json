@@ -1,0 +1,34 @@
+{
+  "task": "TASK-003",
+  "title": "Secure API Key in Backend Factory",
+  "file": "OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift",
+  "line": 475,
+  "status": "completed",
+  "changes": [
+    {
+      "type": "variable_declaration",
+      "description": "Created secureApiKey variable using SecureString",
+      "line": 478,
+      "before": "let apiKey = settings.cloudASRApiKey",
+      "after": "let secureApiKey = SecureString(settings.cloudASRApiKey)"
+    },
+    {
+      "type": "parameter_change",
+      "description": "Changed first makeBackend call to pass SecureString",
+      "line": 490,
+      "before": "apiKey: apiKey",
+      "after": "apiKey: secureApiKey"
+    },
+    {
+      "type": "parameter_change",
+      "description": "Changed second makeBackend call to pass SecureString",
+      "line": 505,
+      "before": "apiKey: apiKey",
+      "after": "apiKey: secureApiKey"
+    }
+  ],
+  "acceptance_criteria": {
+    "SecureString passed to factory": true
+  },
+  "notes": "SecureString provides XOR obfuscation and zero-on-deinit memory protection for the API key"
+}

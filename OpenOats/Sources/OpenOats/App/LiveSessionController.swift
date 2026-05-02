@@ -642,12 +642,16 @@ final class LiveSessionController {
                 coordinator.transcriptionEngine?.audioRecorder = nil
             }
 
-            await coordinator.transcriptionEngine?.start(
-                locale: settings.locale,
-                inputDeviceID: settings.inputDeviceID,
-                transcriptionModel: settings.transcriptionModel,
-                sessionID: handle.sessionID
-            )
+            do {
+                try await coordinator.transcriptionEngine?.start(
+                    locale: settings.locale,
+                    inputDeviceID: settings.inputDeviceID,
+                    transcriptionModel: settings.transcriptionModel,
+                    sessionID: handle.sessionID
+                )
+            } catch {
+                Log.transcription.error("Failed to start transcription engine: \(error.localizedDescription)")
+            }
         }
     }
 

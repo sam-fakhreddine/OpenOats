@@ -1,0 +1,33 @@
+{
+  "task_id": "TASK-008",
+  "task_title": "Fix Resource Leak in TranscriptionEngine (Line 415)",
+  "status": "completed",
+  "files_modified": [
+    {
+      "path": "OpenOats/Sources/OpenOats/Domain/Errors/TranscriptionError.swift",
+      "changes": [
+        "Added new error case: vadManagerNotInitialized",
+        "Added localized error description for the new case"
+      ]
+    },
+    {
+      "path": "OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift",
+      "changes": [
+        "Changed function signature from 'async' to 'async throws'",
+        "Updated guard statement at line 414 to add cleanup code (micBackend = nil, systemBackend = nil) before throwing TranscriptionError.vadManagerNotInitialized"
+      ]
+    },
+    {
+      "path": "OpenOats/Sources/OpenOats/App/LiveSessionController.swift",
+      "changes": [
+        "Wrapped transcriptionEngine.start() call in try-catch block with error logging"
+      ]
+    }
+  ],
+  "acceptance_criteria": {
+    "cleanup_code_in_error_path": true,
+    "details": "Added micBackend = nil and systemBackend = nil cleanup before throwing vadManagerNotInitialized error in the guard failure path"
+  },
+  "build_status": "compiled_successfully",
+  "notes": "Modified files compile without errors. Pre-existing build issues in other files (GenerateNotesUseCase.swift, WhisperKitTranscriptionService.swift) are unrelated to this task."
+}

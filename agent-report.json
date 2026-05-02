@@ -1,142 +1,62 @@
 {
-  "agent": "Swift Concurrency Specialist",
-  "timestamp": "2026-05-01T00:00:00Z",
-  "mission": "Implement Swift 6 strict concurrency fixes for OpenOats",
+  "task": "TASK-004: Update Backend Factory to Accept SecureString",
   "status": "completed",
-  "files_changed": [
+  "timestamp": "2026-05-01T18:45:00Z",
+  "files_modified": [
     {
-      "path": "OpenOats/Sources/OpenOats/Infrastructure/Actors/FluidVadManager.swift",
-      "status": "created",
-      "description": "Actor-based VAD protocol implementation with vDSP energy detection",
-      "sendable_verification": {
-        "conformance": "implicit (actor)",
-        "types": {
-          "Configuration": "Sendable struct",
-          "State": "Sendable enum",
-          "Statistics": "Sendable struct"
+      "path": "OpenOats/Sources/OpenOats/Settings/SettingsTypes.swift",
+      "changes": [
+        {
+          "line": 410,
+          "type": "signature_change",
+          "description": "Updated makeBackend function signature to accept SecureString instead of String for apiKey parameter",
+          "before": "func makeBackend(customVocabulary: String = \"\", apiKey: String = \"\", removeFillerWords: Bool = false, modelStorageURL: URL? = nil) -> any TranscriptionBackend",
+          "after": "func makeBackend(customVocabulary: String = \"\", apiKey: SecureString, removeFillerWords: Bool = false, modelStorageURL: URL? = nil) -> any TranscriptionBackend"
         },
-        "vdsp_usage": "vDSP_measqv for RMS energy, vDSP_meanv for smoothing"
-      },
-      "key_features": [
-        "Actor isolation for thread-safe VAD state machine",
-        "vDSP-based energy detection (vDSP_measqv)",
-        "Adaptive noise floor estimation using percentile-based method",
-        "Probability smoothing with vDSP mean calculation",
-        "Non-blocking async/await API"
-      ],
-      "lines_of_code": 333,
-      "fixes_applied": [
-        "Fixed redundant state machine transitions - removed immediate overwrites of .speechStart and .speechEnd states"
+        {
+          "line": 424,
+          "type": "new_function",
+          "description": "Added backwards-compatible overload that accepts plain String for apiKey",
+          "implementation": "Creates SecureString from String and delegates to primary SecureString variant"
+        }
       ]
     },
     {
-      "path": "OpenOats/Sources/OpenOats/Infrastructure/Actors/SyncDouble.swift",
-      "status": "created",
-      "description": "Actor-based double accumulator with nonisolated cached value",
-      "sendable_verification": {
-        "conformance": "implicit (actor)",
-        "nonisolated_access": "cached property uses NSLock for thread-safe reads",
-        "pattern": "Actor-isolated writes with lock-protected nonisolated reads",
-        "implementation_notes": "NSLock is safe because actor mutation methods don't suspend"
-      },
-      "key_features": [
-        "Actor-isolated arithmetic operations (add, subtract, multiply, divide)",
-        "Nonisolated cached value for fast reads without actor hop",
-        "Batch operations support",
-        "Statistics tracking",
-        "Thread-safe via actor isolation + NSLock for cache"
-      ],
-      "lines_of_code": 320
-    },
-    {
-      "path": "OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift",
-      "status": "verified",
-      "description": "Verified Swift 6 concurrency compliance",
-      "verification_results": {
-        "mic_capture_declaration": "Line 152: 'private var micCapture = MicCapture()' - Already var (correct)",
-        "await_keywords": "All async calls properly await-ed",
-        "task_usage": "Proper use of Task.detached for transcribers, Task { @MainActor } for UI updates",
-        "actor_usage": "Uses FluidVadManager actor, SyncDouble actor",
-        "isolation": "@MainActor class with nonisolated(unsafe) backing for @Observable properties"
-      },
-      "no_changes_needed": [
-        "micCapture is already declared as 'var' (line 152)",
-        "All async calls have proper 'await' keywords",
-        "Task wrapping is correct for fire-and-forget operations"
+      "path": "OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "changes": [
+        {
+          "line": 89,
+          "type": "signature_change",
+          "description": "Updated primary initializer to accept SecureString for apiKey",
+          "before": "init(apiKey: String, customVocabulary: String = \"\")",
+          "after": "init(apiKey: SecureString, customVocabulary: String = \"\")"
+        },
+        {
+          "line": 97,
+          "type": "new_function",
+          "description": "Added convenience initializer for backwards compatibility with plain String",
+          "implementation": "Wraps String in SecureString and delegates to primary initializer"
+        }
       ]
-    },
-    {
-      "path": "OpenOats/Tests/OpenOatsTests/SendableVerification.swift",
-      "status": "created",
-      "description": "Compilation test verifying Sendable conformance"
     }
   ],
-  "sendable_conformances": [
-    {
-      "type": "FluidVadManager",
-      "conformance": "Implicit Sendable (actor)",
-      "verified": true,
-      "crosses_isolation_boundary": true
-    },
-    {
-      "type": "SyncDouble",
-      "conformance": "Implicit Sendable (actor)",
-      "verified": true,
-      "crosses_isolation_boundary": true,
-      "implementation_notes": "Uses NSLock for nonisolated cached value updates - safe because actor methods don't suspend during mutations"
-    },
-    {
-      "type": "Configuration (FluidVadManager)",
-      "conformance": "Explicit Sendable",
-      "verified": true
-    },
-    {
-      "type": "Statistics (SyncDouble)",
-      "conformance": "Explicit Sendable",
-      "verified": true
-    }
+  "security_improvements": [
+    "Factory now accepts SecureString directly, preventing unnecessary String copies",
+    "Backwards-compatible String overload ensures existing code continues to work",
+    "AssemblyAIBackend primary initializer uses SecureString, eliminating internal wrapping",
+    "ElevenLabsScribeBackend already had SecureString initializer (no changes needed)"
   ],
-  "swift6_compliance_checklist": {
-    "no_blocking_on_main_actor": "Verified - heavy work dispatched to actors",
-    "shared_mutable_state_in_actors": "Verified - FluidVadManager and SyncDouble are actors",
-    "sendable_types_at_boundaries": "Verified - all crossing types are Sendable",
-    "task_cancellation": "Verified - Task.isCancelled checked in loops",
-    "structured_concurrency": "Verified - Task.detached used where appropriate"
+  "acceptance_criteria": {
+    "signature_uses_securestring": true,
+    "implementation_unwraps_securely": true,
+    "backwards_compatibility_maintained": true
   },
-  "compilation_status": {
-    "notes": "Build currently has unrelated errors in other modules (GenerateNotesUseCase, CircularAudioBuffer redeclaration, etc.)",
-    "actor_files_compile": "Files are syntactically correct and properly structured",
-    "strict_concurrency_ready": true
-  },
-  "tests_passed": {
-    "unit_tests": "Unable to run due to unrelated build errors in other modules",
-    "concurrency_tests": "Test file ConcurrencySafetyTests.swift exists and references the actors",
-    "sendable_verification": "Manual verification completed - all actors properly implement Sendable"
-  },
-  "vdsp_implementations": {
-    "vDSP_measqv": "Used in FluidVadManager.calculateRMSEnergy() for RMS energy calculation",
-    "vDSP_meanv": "Used in FluidVadManager.calculateSmoothedProbability() for probability smoothing",
-    "performance": "O(n) vectorized operations replacing O(n) scalar loops"
-  },
-  "verification_checklist": {
-    "actor_protocol_conformance": "FluidVadManager properly conforms to VadManager protocol (Sendable)",
-    "actor_implicit_sendable": "Both actors are implicitly Sendable via actor isolation",
-    "cross_boundary_types": "All types crossing isolation boundaries (VadStreamState, VadResult, Statistics, Configuration) are Sendable",
-    "nonisolated_safety": "SyncDouble.nonisolated(unsafe) cachedValue is protected by NSLock during updates",
-    "reentrancy_considered": "State machine updates happen synchronously before any await points"
-  },
-  "usage_examples": {
-    "FluidVadManager": [
-      "let vad: VadManager = await FluidVadManager()",
-      "let state = await vad.makeStreamState()",
-      "let result = try await vad.processStreamingChunk(samples, state: state, config: config, returnSeconds: true, timeResolution: 1)",
-      "await vad.reset()"
-    ],
-    "SyncDouble": [
-      "let counter = SyncDouble()",
-      "await counter.add(1.5)",
-      "let value = await counter.value  // Actor-isolated read",
-      "let cached = counter.cached      // Nonisolated read"
-    ]
+  "verification": {
+    "compilation_status": "no_errors_in_modified_files",
+    "grep_verification": {
+      "makeBackend_securestring_signature": "grep -n 'func makeBackend.*apiKey: SecureString' OpenOats/Sources/OpenOats/Settings/SettingsTypes.swift",
+      "assemblyai_securestring_init": "grep -n 'init(apiKey: SecureString' OpenOats/Sources/OpenOats/Transcription/AssemblyAIBackend.swift",
+      "elevenlabs_securestring_init": "grep -n 'init(apiKey: SecureString' OpenOats/Sources/OpenOats/Transcription/ElevenLabsScribeBackend.swift"
+    }
   }
 }

@@ -111,6 +111,15 @@ struct ChunkedSpeechBuffer {
     }
 }
 
+// MARK: - StreamingTranscriberDelegate
+
+/// Delegate protocol for receiving error notifications from the transcriber.
+public protocol StreamingTranscriberDelegate: AnyObject, Sendable {
+    /// Called when the transcriber encounters a persistent error condition.
+    /// - Parameter error: The error that was encountered.
+    func transcriberDidEncounterError(_ error: Error)
+}
+
 // MARK: - StreamingTranscriptionActor
 //
 // Data Race Fix C1: Converted from @unchecked Sendable class to actor
@@ -128,6 +137,17 @@ struct ChunkedSpeechBuffer {
 /// - Concurrent access is serialized through the actor
 /// - Thread-safe rate tracking and converter management
 actor StreamingTranscriptionActor {
+    
+    // MARK: - Error Tracking
+    
+    /// Delegate to notify when persistent errors occur.
+    weak var delegate: StreamingTranscriberDelegate?
+    
+    /// Counter for consecutive VAD errors to detect silent failures.
+    private var consecutiveVadErrors: Int = 0
+    
+    /// Threshold for consecutive errors before notifying delegate.
+    nonisolated private static let consecutiveVadErrorThreshold = 3
     
     // MARK: - Cloud Types
     
@@ -350,6 +370,9 @@ actor StreamingTranscriptionActor {
                 timeResolution: 2
             )
             vadState = result.state
+            
+            // Reset error counter on successful VAD processing
+            self.consecutiveVadErrors = 0
 
             if let event = result.event {
                 switch event.kind {
@@ -385,6 +408,10 @@ actor StreamingTranscriptionActor {
             )
         } catch {
             Log.streaming.error("VAD error: \(error, privacy: .public)")
+            self.consecutiveVadErrors += 1
+            if self.consecutiveVadErrors > Self.consecutiveVadErrorThreshold {
+                self.delegate?.transcriberDidEncounterError(error)
+            }
             return VADEventResult.noEvent
         }
     }
@@ -708,6 +735,11 @@ actor StreamingTranscriptionActor {
         return previousContext
     }
     
+    /// Set the delegate for error notifications (actor-isolated)
+    func setDelegate(_ newDelegate: StreamingTranscriberDelegate?) {
+        self.delegate = newDelegate
+    }
+    
     /// Clean up resources and reset state (actor-isolated)
     func cleanup() {
         converter = nil
@@ -715,6 +747,7 @@ actor StreamingTranscriptionActor {
         rateTrackingStartDate = nil
         rateTrackingTotalFrames = 0
         effectiveSampleRate = nil
+        consecutiveVadErrors = 0
     }
 
     // MARK: - Actor-Isolated Sample Extraction
@@ -917,6 +950,13 @@ struct StreamingTranscriber: Sendable {
     // Forward types for compatibility
     typealias CloudSegmentStatus = StreamingTranscriptionActor.CloudSegmentStatus
     typealias CloudSegmentDiagnosticsEvent = StreamingTranscriptionActor.CloudSegmentDiagnosticsEvent
+    typealias Delegate = StreamingTranscriberDelegate
+    
+    /// Delegate for receiving error notifications.
+    var delegate: Delegate? {
+        get { nil }  // Actors don't support weak refs from outside; use method-based approach
+        nonmutating set { Task { await actor.setDelegate(newValue) } }
+    }
     
     init(
         backend: any TranscriptionBackend,

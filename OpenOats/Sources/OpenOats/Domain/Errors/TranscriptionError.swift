@@ -38,6 +38,9 @@ public enum TranscriptionError: Error, Sendable, Equatable {
     ///   - provider: The provider that rate-limited.
     ///   - retryAfter: When to retry the request.
     case rateLimited(provider: String, retryAfter: Date?)
+    
+    /// VAD manager was not initialized when required.
+    case vadManagerNotInitialized
 }
 
 extension TranscriptionError: LocalizedError {
@@ -62,6 +65,9 @@ extension TranscriptionError: LocalizedError {
         case .rateLimited(let provider, let retryAfter):
             let retry = retryAfter.map { " - retry after \($0)" } ?? ""
             return "Rate limited by '\(provider)'\(retry)"
+            
+        case .vadManagerNotInitialized:
+            return "VAD manager was not initialized"
         }
     }
 }

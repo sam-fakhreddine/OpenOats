@@ -75,20 +75,24 @@ public actor FluidVadManager: VadManager {
     /// Ring buffer for audio samples (O(1) circular buffer)
     private var sampleBuffer: VDSPCircularAudioBuffer
     
-    /// Energy history for noise floor estimation
-    private var energyHistory: [Float] = []
+    /// Energy history for noise floor estimation (ring buffer for O(1) operations)
+    private var energyHistory: [Float]
+    private var energyHistoryHead = 0
+    private var energyHistoryCount = 0
     private let maxEnergyHistory = 30  // ~1 second of history
-    
+
     /// Speech timing tracking
     private var currentSpeechStart: Double?
     private var lastSpeechTime: Double = 0
     private var silenceStartTime: Double?
-    
+
     /// Total processed samples (for timestamp calculation)
     private var totalProcessedSamples: Int64 = 0
-    
-    /// Voice probability smoothing buffer
-    private var probabilityBuffer: [Float] = []
+
+    /// Voice probability smoothing buffer (ring buffer for O(1) operations)
+    private var probabilityBuffer: [Float]
+    private var probabilityHead = 0
+    private var probabilityCount = 0
     private let maxProbabilityBuffer = 5
     
     // MARK: - Initialization
@@ -98,10 +102,18 @@ public actor FluidVadManager: VadManager {
         self.sampleBuffer = VDSPCircularAudioBuffer(
             capacity: Int(configuration.sampleRate * 2.0)  // 2 seconds buffer
         )
+        // Pre-allocate ring buffers with fixed capacity
+        self.energyHistory = Array(repeating: 0.0, count: maxEnergyHistory)
+        self.probabilityBuffer = Array(repeating: 0.0, count: maxProbabilityBuffer)
     }
     
     public init() {
-        self.init(configuration: .default)
+        self.configuration = .default
+        self.sampleBuffer = VDSPCircularAudioBuffer(
+            capacity: Int(Configuration.default.sampleRate * 2.0)
+        )
+        self.energyHistory = Array(repeating: 0.0, count: maxEnergyHistory)
+        self.probabilityBuffer = Array(repeating: 0.0, count: maxProbabilityBuffer)
     }
     
     // MARK: - VadManager Protocol
@@ -126,10 +138,11 @@ public actor FluidVadManager: VadManager {
         // Update total processed samples
         totalProcessedSamples += Int64(samples.count)
         
-        // Update probability smoothing buffer
-        probabilityBuffer.append(voiceProbability)
-        if probabilityBuffer.count > maxProbabilityBuffer {
-            probabilityBuffer.removeFirst()
+        // Update probability smoothing buffer using ring buffer (O(1) operation)
+        probabilityBuffer[probabilityHead] = voiceProbability
+        probabilityHead = (probabilityHead + 1) % maxProbabilityBuffer
+        if probabilityCount < maxProbabilityBuffer {
+            probabilityCount += 1
         }
         
         // Calculate smoothed probability using vDSP mean
@@ -161,10 +174,11 @@ public actor FluidVadManager: VadManager {
         // Calculate RMS energy using vDSP
         let energy = calculateRMSEnergy(samples)
         
-        // Update energy history for adaptive thresholding
-        energyHistory.append(energy)
-        if energyHistory.count > maxEnergyHistory {
-            energyHistory.removeFirst()
+        // Update energy history using ring buffer (O(1) operation)
+        energyHistory[energyHistoryHead] = energy
+        energyHistoryHead = (energyHistoryHead + 1) % maxEnergyHistory
+        if energyHistoryCount < maxEnergyHistory {
+            energyHistoryCount += 1
         }
         
         // Calculate noise floor using vDSP
@@ -195,23 +209,29 @@ public actor FluidVadManager: VadManager {
     
     /// Calculate noise floor using percentile-based estimation
     private func calculateNoiseFloor() -> Float {
-        guard !energyHistory.isEmpty else { return 0.01 }
-        
+        guard energyHistoryCount > 0 else { return 0.01 }
+
+        // Collect valid elements from ring buffer
+        let validHistory = Array(energyHistory.prefix(energyHistoryCount))
+
         // Sort energy history to find percentile
-        let sorted = energyHistory.sorted()
+        let sorted = validHistory.sorted()
         let percentileIndex = Int(Float(sorted.count) * 0.1)  // 10th percentile
         let noiseFloor = sorted[max(0, min(percentileIndex, sorted.count - 1))]
-        
+
         return max(noiseFloor, 0.001)  // Minimum noise floor
     }
     
     /// Calculate smoothed probability using vDSP mean
     private func calculateSmoothedProbability() -> Float {
-        guard !probabilityBuffer.isEmpty else { return 0.0 }
-        
+        guard probabilityCount > 0 else { return 0.0 }
+
+        // Collect valid elements from ring buffer for vDSP calculation
+        let validBuffer = Array(probabilityBuffer.prefix(probabilityCount))
+
         var mean: Float = 0
-        vDSP_meanv(probabilityBuffer, 1, &mean, vDSP_Length(probabilityBuffer.count))
-        
+        vDSP_meanv(validBuffer, 1, &mean, vDSP_Length(validBuffer.count))
+
         return mean
     }
     
@@ -293,8 +313,11 @@ public actor FluidVadManager: VadManager {
         lastSpeechTime = 0
         silenceStartTime = nil
         totalProcessedSamples = 0
-        energyHistory.removeAll()
-        probabilityBuffer.removeAll()
+        // Reset ring buffer indices (O(1) - no array reallocation needed)
+        energyHistoryHead = 0
+        energyHistoryCount = 0
+        probabilityHead = 0
+        probabilityCount = 0
         await sampleBuffer.clear()
     }
     
@@ -307,11 +330,12 @@ public actor FluidVadManager: VadManager {
     public func setConfiguration(_ newConfig: Configuration) async {
         configuration = newConfig
         // Reinitialize buffer with new capacity if needed
-        let currentCapacity = await sampleBuffer.capacity
-        if currentCapacity != Int(newConfig.sampleRate * 2.0) {
-            sampleBuffer = VDSPCircularAudioBuffer(
-                capacity: Int(newConfig.sampleRate * 2.0)
-            )
+        // Cache values before await to prevent reentrancy race
+        let requiredCapacity = Int(newConfig.sampleRate * 2.0)
+        let currentBuffer = sampleBuffer
+        let currentCapacity = await currentBuffer.capacity
+        if currentCapacity != requiredCapacity {
+            sampleBuffer = VDSPCircularAudioBuffer(capacity: requiredCapacity)
         }
     }
     

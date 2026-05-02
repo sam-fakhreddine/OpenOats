@@ -81,11 +81,22 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
 
     // MARK: - Init
 
-    init(apiKey: String, customVocabulary: String = "") {
-        // SEC-006 Fix: Wrap API key in SecureString immediately
-        self.secureAPIKey = SecureString(apiKey)
+    /// Creates a new AssemblyAI backend with secure API key storage.
+    ///
+    /// - Parameters:
+    ///   - apiKey: API key as a SecureString (preferred) or plain String
+    ///   - customVocabulary: Custom vocabulary for transcription
+    init(apiKey: SecureString, customVocabulary: String = "") {
+        self.secureAPIKey = apiKey
         self.customSpelling = Self.parseCustomSpelling(customVocabulary)
         self.session = URLSession(configuration: .ephemeral)
+    }
+
+    /// Creates a new AssemblyAI backend with plain string API key.
+    /// - Warning: Prefer the SecureString variant for production code.
+    convenience init(apiKey: String, customVocabulary: String = "") {
+        let secureKey = SecureString(apiKey)
+        self.init(apiKey: secureKey, customVocabulary: customVocabulary)
     }
 
     // MARK: - TranscriptionBackend

@@ -1,6 +1,12 @@
 import Foundation
 import Accelerate
 
+// MARK: - AudioBufferError
+/// Errors that can occur during audio buffer operations
+public enum AudioBufferError: Error {
+    case invalidBuffer
+}
+
 // MARK: - VDSPCircularAudioBuffer
 /// O(1) circular audio buffer using vDSP for efficient memory operations.
 /// Thread-safe through actor isolation with SIMD-accelerated data movement.
@@ -76,8 +82,9 @@ public actor VDSPCircularAudioBuffer {
     ///
     /// - Parameter samples: Array of Float samples to write
     /// - Returns: Number of samples actually written (may be less if buffer full)
+    /// - Throws: AudioBufferError.invalidBuffer if buffer memory is inaccessible
     @discardableResult
-    public func write(_ samples: [Float]) -> Int {
+    public func write(_ samples: [Float]) throws -> Int {
         let samplesToWrite = min(samples.count, capacity - sampleCount)
         guard samplesToWrite > 0 else { return 0 }
         
@@ -87,11 +94,14 @@ public actor VDSPCircularAudioBuffer {
         if firstPart > 0 {
             // vDSP_mmov: Matrix move for fast memory copy
             // Source stride 1, dest stride 1 for contiguous copy
-            withUnsafePointer(to: samples[0]) { sourcePtr in
-                buffer.withUnsafeMutableBufferPointer { destBuffer in
+            try withUnsafePointer(to: samples[0]) { sourcePtr in
+                try buffer.withUnsafeMutableBufferPointer { destBuffer in
+                    guard let ptr = destBuffer.baseAddress else {
+                        throw AudioBufferError.invalidBuffer
+                    }
                     vDSP_mmov(
                         sourcePtr,
-                        destBuffer.baseAddress! + writeIndex,
+                        ptr + writeIndex,
                         vDSP_Length(firstPart),
                         1,
                         1,
@@ -103,11 +113,14 @@ public actor VDSPCircularAudioBuffer {
         
         let secondPart = samplesToWrite - firstPart
         if secondPart > 0 {
-            withUnsafePointer(to: samples[firstPart]) { sourcePtr in
-                buffer.withUnsafeMutableBufferPointer { destBuffer in
+            try withUnsafePointer(to: samples[firstPart]) { sourcePtr in
+                try buffer.withUnsafeMutableBufferPointer { destBuffer in
+                    guard let ptr = destBuffer.baseAddress else {
+                        throw AudioBufferError.invalidBuffer
+                    }
                     vDSP_mmov(
                         sourcePtr,
-                        destBuffer.baseAddress!,
+                        ptr,
                         vDSP_Length(secondPart),
                         1,
                         1,
@@ -289,14 +302,23 @@ public actor VDSPCircularAudioBuffer {
         }
     }
     
+    /// Get sample count and samples atomically to prevent reentrancy issues
+    /// - Parameter count: Maximum number of samples to return
+    /// - Returns: Tuple of (actualCount, samples) where actualCount <= count
+    public func getCountAndSamples(maxCount: Int) -> (count: Int, samples: [Float]) {
+        let actualCount = min(maxCount, sampleCount)
+        guard actualCount > 0 else { return (0, []) }
+        let samples = peek(count: actualCount)
+        return (actualCount, samples)
+    }
+
     /// Add another buffer's contents to this buffer using vDSP_vadd
     /// - Parameter other: Source buffer to add from
     public func add(_ other: VDSPCircularAudioBuffer) async {
-        let samplesToAdd = min(self.sampleCount, await other.sampleCount)
+        // Single suspension point: get both count and samples atomically
+        let (samplesToAdd, otherSamples) = await other.getCountAndSamples(maxCount: self.sampleCount)
         guard samplesToAdd > 0 else { return }
-        
-        let otherSamples = await other.peek(count: samplesToAdd)
-        
+
         // Add using vDSP_vadd
         if readIndex + samplesToAdd <= capacity {
             buffer.withUnsafeMutableBufferPointer { buf in
