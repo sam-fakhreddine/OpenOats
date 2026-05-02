@@ -83,6 +83,7 @@ actor DIContainer {
     ///   - serviceFactory: Optional mock service factory for testing.
     ///   - useCaseFactory: Optional mock use case factory for testing.
     ///   - viewModelFactory: Optional mock view model factory for testing.
+    @MainActor
     init(
         mode: DIContainerRuntimeMode,
         serviceFactory: (any ServiceFactory)? = nil,
@@ -92,13 +93,7 @@ actor DIContainer {
         self.mode = mode
         self.injectedServiceFactory = serviceFactory
         self.injectedUseCaseFactory = useCaseFactory
-        
-        // ViewModelFactory must be set on MainActor
-        if let vmFactory = viewModelFactory {
-            Task { @MainActor in
-                self.cachedViewModelFactory = vmFactory
-            }
-        }
+        self.cachedViewModelFactory = viewModelFactory
     }
     
     // MARK: - Factory Accessors (Lazy Initialization)

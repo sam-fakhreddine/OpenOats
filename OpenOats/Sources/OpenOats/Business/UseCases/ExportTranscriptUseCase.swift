@@ -89,9 +89,13 @@ public actor ExportTranscriptUseCaseImpl: ExportTranscriptUseCase {
     nonisolated public var progressStream: AsyncStream<Double> {
         AsyncStream { continuation in
             Task {
-                await self.setProgressContinuation(continuation)
+                await self.registerContinuation(continuation)
             }
         }
+    }
+
+    private func registerContinuation(_ continuation: AsyncStream<Double>.Continuation) {
+        self.progressContinuation = continuation
     }
     
     public init(
@@ -103,11 +107,7 @@ public actor ExportTranscriptUseCaseImpl: ExportTranscriptUseCase {
         self.fileExporter = fileExporter
         self.utteranceRepository = utteranceRepository
     }
-    
-    private func setProgressContinuation(_ continuation: AsyncStream<Double>.Continuation?) {
-        self.progressContinuation = continuation
-    }
-    
+
     public func execute(input: ExportTranscriptInput) async throws -> ExportTranscriptOutput {
         // Report initial progress
         await reportProgress(0.0)
