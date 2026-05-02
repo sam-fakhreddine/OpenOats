@@ -312,7 +312,7 @@ public actor StreamingAudioMerger: StreamingAudioMergerProtocol {
     /// Memory usage: Bounded at ~1.5MB regardless of recording length
     /// - Uses buffer pool for chunk reuse
     /// - No full-file loading (replaces readAllMono)
-    /// - Automatic cleanup via defer
+    /// - Explicit cleanup on all paths (success and error)
     ///
     /// - Parameters:
     ///   - micStream: Microphone audio stream
@@ -351,71 +351,72 @@ public actor StreamingAudioMerger: StreamingAudioMergerProtocol {
         // Memory stays bounded at ~1.5MB - we reuse buffers
         var micBuffer = await bufferPool.acquire()
         var sysBuffer = await bufferPool.acquire()
-        
-        // Ensure buffers are always released back to pool
-        defer {
-            Task {
-                await bufferPool.release(&micBuffer)
-                await bufferPool.release(&sysBuffer)
-            }
-        }
-        
+
         // Use weak self pattern for any nested Tasks to prevent retain cycles
         var micIterator = micStream.makeAsyncIterator()
         var sysIterator = sysStream.makeAsyncIterator()
-        
+
         var totalFramesProcessed: Int64 = 0
-        
-        processingLoop: while true {
-            // Fill mic buffer
-            var micFilled = 0
-            while micFilled < chunkSize {
-                do {
-                    guard let frame = try await micIterator.next() else { break }
-                    micBuffer[micFilled] = frame.sample
-                    micFilled += 1
-                } catch {
-                    // Log error but continue with what we have
-                    break
+
+        do {
+            processingLoop: while true {
+                // Fill mic buffer
+                var micFilled = 0
+                while micFilled < chunkSize {
+                    do {
+                        guard let frame = try await micIterator.next() else { break }
+                        micBuffer[micFilled] = frame.sample
+                        micFilled += 1
+                    } catch {
+                        // Log error but continue with what we have
+                        break
+                    }
                 }
-            }
-            
-            // Fill system buffer
-            var sysFilled = 0
-            while sysFilled < chunkSize {
-                do {
-                    guard let frame = try await sysIterator.next() else { break }
-                    sysBuffer[sysFilled] = frame.sample
-                    sysFilled += 1
-                } catch {
-                    break
+
+                // Fill system buffer
+                var sysFilled = 0
+                while sysFilled < chunkSize {
+                    do {
+                        guard let frame = try await sysIterator.next() else { break }
+                        sysBuffer[sysFilled] = frame.sample
+                        sysFilled += 1
+                    } catch {
+                        break
+                    }
                 }
+
+                // If both empty, we're done
+                if micFilled == 0 && sysFilled == 0 {
+                    break processingLoop
+                }
+
+                // Mix and write
+                let mixed = try mixBuffers(
+                    mic: micBuffer,
+                    micCount: micFilled,
+                    sys: sysBuffer,
+                    sysCount: sysFilled,
+                    format: targetFormat
+                )
+
+                try outputFile.write(from: mixed)
+
+                totalFramesProcessed += Int64(max(micFilled, sysFilled))
+
+                // SAFETY: Memory stays bounded - we reuse buffers
+                // INVARIANT: Total allocated memory never exceeds maxMemoryBudget
             }
-            
-            // If both empty, we're done
-            if micFilled == 0 && sysFilled == 0 {
-                break processingLoop
-            }
-            
-            // Mix and write
-            let mixed = try mixBuffers(
-                mic: micBuffer,
-                micCount: micFilled,
-                sys: sysBuffer,
-                sysCount: sysFilled,
-                format: targetFormat
-            )
-            
-            try outputFile.write(from: mixed)
-            
-            totalFramesProcessed += Int64(max(micFilled, sysFilled))
-            
-            // SAFETY: Memory stays bounded - we reuse buffers
-            // INVARIANT: Total allocated memory never exceeds maxMemoryBudget
+        } catch {
+            // Ensure buffers are released even on error
+            await bufferPool.release(&micBuffer)
+            await bufferPool.release(&sysBuffer)
+            throw error
         }
-        
+
         // File handle closed when outputFile goes out of scope
-        // Buffers released in defer block
+        // Ensure buffers are always released back to pool on success path
+        await bufferPool.release(&micBuffer)
+        await bufferPool.release(&sysBuffer)
     }
     
     /// Mix two audio buffers with automatic level normalization
