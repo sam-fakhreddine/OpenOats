@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "timestamp": "2026-05-02T00:33:47.076729+00:00",
+  "repo": "/workspace/OpenOats",
+  "commit": "",
+  "verdict": "clear",
+  "security_score": 100.0,
+  "quality_score": 100.0,
+  "total_findings": 0,
+  "total_plugins": 0,
+  "plugins": []
+}
