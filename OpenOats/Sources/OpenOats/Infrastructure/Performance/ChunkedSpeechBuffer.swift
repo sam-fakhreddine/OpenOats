@@ -241,7 +241,7 @@ public actor VDSPChunkedSpeechBuffer {
             
             if written > 0 {
                 activeChunks.append(newChunk)
-                samplesRemaining = Array(samplesRemaining.dropFirst(written))
+                samplesRemaining = samplesRemaining[written...]
             } else {
                 // Shouldn't happen, but break to avoid infinite loop
                 break
