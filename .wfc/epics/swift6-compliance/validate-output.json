@@ -1,0 +1,153 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-validate",
+  "to_skill": "wfc-pm",
+  "step": "validate",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {
+    "level": "none",
+    "reason": "",
+    "owner": "skill"
+  },
+  "artifacts": {
+    "machine": ".wfc/epics/swift6-compliance/validate-output.json",
+    "human": ".wfc/epics/swift6-compliance/VALIDATE.md"
+  },
+  "payload": {
+    "verdict": "PROCEED_WITH_ADJUSTMENTS",
+    "overall_score": 8.2,
+    "mode": "adr-evaluation",
+    "dimension_results": [
+      {
+        "dimension": "Decision Clarity",
+        "score": 8,
+        "max": 10,
+        "assessment": "Clear decisions with code examples. Needs sunset criteria for @preconcurrency and 'hot path' definition.",
+        "recommendation": "Add sunset criteria to ADR-002; define hot path threshold in ADR-004"
+      },
+      {
+        "dimension": "Reversibility",
+        "score": 9,
+        "max": 10,
+        "assessment": "All decisions highly reversible. Phased approach allows rollback. No data migration.",
+        "recommendation": "No action required"
+      },
+      {
+        "dimension": "Constraint Coverage",
+        "score": 8,
+        "max": 10,
+        "assessment": "Most constraints covered. <20ms latency needs stronger traceability to ADR-004.",
+        "recommendation": "Add traceability note in ADR-004 linking actor decision to latency constraint"
+      },
+      {
+        "dimension": "Scope Discipline",
+        "score": 8,
+        "max": 10,
+        "assessment": "ADRs generally in decision lane. ADR-004 has minor scope drift with specific file decisions.",
+        "recommendation": "Move specific file decisions from ADR-004 to implementation tasks"
+      },
+      {
+        "dimension": "Internal Consistency",
+        "score": 9,
+        "max": 10,
+        "assessment": "All 5 ADRs consistent. Cross-references accurate. No contradictions.",
+        "recommendation": "No action required"
+      },
+      {
+        "dimension": "Phasing Honesty",
+        "score": 8,
+        "max": 10,
+        "assessment": "Clear 4-phase approach. ADRs marked 'Proposed' should transition to 'ACCEPTED'.",
+        "recommendation": "Update ADR status headers to 'ACCEPTED' after wfc-pm approval"
+      },
+      {
+        "dimension": "Decision-to-Implementation Ratio",
+        "score": 8,
+        "max": 10,
+        "assessment": "Good decision focus. ADR-004 slightly implementation-heavy but justified.",
+        "recommendation": "Optional: Extract ADR-004 patterns to companion guide"
+      }
+    ],
+    "required_adjustments": [
+      {
+        "id": "ADJ-001",
+        "adr": "ADR-002",
+        "description": "Add sunset criteria for @preconcurrency",
+        "example": "Remove @preconcurrency when all implementations conform to updated protocol isolation"
+      },
+      {
+        "id": "ADJ-002",
+        "adr": "ADR-004",
+        "description": "Define 'hot path' threshold and move file decisions to tasks",
+        "example": "Hot path: >100k ops/sec; Move CircularAudioBuffer decision to TASK-SW6-011"
+      },
+      {
+        "id": "ADJ-003",
+        "adr": "All ADRs",
+        "description": "Update status from 'Proposed' to 'ACCEPTED' after wfc-pm gate approval"
+      }
+    ],
+    "optional_refinements": [
+      {
+        "id": "OPT-001",
+        "adr": "ADR-004",
+        "description": "Add traceability note linking actor decision to <20ms latency constraint"
+      },
+      {
+        "id": "OPT-002",
+        "adr": "ADR-004",
+        "description": "Extract migration patterns to companion implementation guide"
+      }
+    ],
+    "risk_assessment": {
+      "overall": "LOW",
+      "technical_risks": "Well mitigated by phased approach and performance validation",
+      "schedule_risks": "91 hours with 2 engineers = ~30 calendar days, acceptable",
+      "api_risks": "Compatibility preserved through @preconcurrency and @unchecked policies"
+    },
+    "gate_criteria_check": {
+      "all_significant_decisions_have_adrs": {
+        "status": "PASS",
+        "count": 5,
+        "adrs": [
+          "ADR-001-swift6-adoption.md",
+          "ADR-002-actor-protocol-conformance.md",
+          "ADR-003-unchecked-sendable-policy.md",
+          "ADR-004-async-safe-locking.md",
+          "ADR-005-test-infrastructure.md"
+        ]
+      },
+      "no_open_critical_design_risks": {
+        "status": "PASS",
+        "count": 0
+      },
+      "no_open_high_design_risks": {
+        "status": "PASS",
+        "count": 0,
+        "note": "2 MEDIUM risks identified in DESIGN-002 and DESIGN-003, acceptable"
+      },
+      "tasks_md_present_validated": {
+        "status": "PASS",
+        "issues": 3,
+        "issues_detail": [
+          "CircularAudioBuffer file may not exist",
+          "Phase 4 has many tasks (7)",
+          "Baseline metrics capture implicit in TASK-SW6-018"
+        ]
+      },
+      "wfc_validate_verdict": {
+        "status": "PASS",
+        "verdict": "PROCEED_WITH_ADJUSTMENTS",
+        "score": 8.2,
+        "threshold": 7.0
+      }
+    },
+    "handoff_recommendation": {
+      "target_skill": "wfc-pm",
+      "action": "APPROVE_AND_DISPATCH",
+      "next_skill": "wfc-engineer",
+      "reason": "Architecture validated with 8.2/10 score. 3 minor adjustments required before implementation but design is sound."
+    }
+  }
+}

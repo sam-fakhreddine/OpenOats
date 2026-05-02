@@ -1,0 +1,94 @@
+# Context Fragment: REFACTOR Phase
+# Version: 1.0.0
+# Purpose: What to read and validate for REFACTOR phase
+
+id: refactor-context
+version: "1.0.0"
+description: Context requirements for REFACTOR phase (optimization)
+
+required_reads:
+  - path: AGENTS.md
+    reason: Full project standards including performance targets
+    priority: critical
+    
+  - path: "{{paths.test_file}}"
+    reason: Understand required behavior (tests are spec)
+    priority: critical
+    
+  - path: "{{paths.implementation_file}}"
+    reason: Current implementation to optimize
+    priority: critical
+
+validation_rules:
+  - rule: tests_still_pass
+    command: |
+      cd {{worktree_path}}
+      swift test --filter {{task.id}}
+    expected: "exit 0"
+    on_failure: |
+      Refactoring broke tests. Revert and try again.
+      
+  - rule: swift6_compliant
+    command: |
+      cd {{worktree_path}}
+      swift build --target OpenOatsKit -Xswiftc -strict-concurrency=complete 2>&1 | grep -c "error:" || echo "0"
+    expected: "0"
+    on_failure: |
+      Swift 6 errors detected. Fix all concurrency issues.
+      
+  - rule: performance_target
+    condition: "{{task.description}} contains 'audio' OR {{task.description}} contains 'performance'"
+    command: |
+      # Run performance tests if available
+      cd {{worktree_path}}
+      swift test --filter PerformanceTests 2>&1 | grep "latency_ms" | awk '{print $2}'
+    expected: "<{{constraints.performance_target_ms}}"
+    on_failure: |
+      Performance target not met. Optimize further.
+
+optimization_checklist:
+  - item: Use vDSP for audio vector operations (2-4x speedup)
+    applies_when: "audio processing"
+    
+  - item: Replace Array.removeFirst() with circular buffers (O(n²) → O(1))
+    applies_when: "buffer management"
+    
+  - item: Pre-allocate arrays with exact capacity
+    applies_when: "array operations"
+    
+  - item: Use copyMemory for bulk operations
+    applies_when: "data transfer"
+    
+  - item: Actor isolation for all stateful services
+    applies_when: "state management"
+    
+  - item: SAFETY comments for all @unchecked Sendable
+    applies_when: "unsafe code"
+
+phase_instructions: |
+  ## REFACTOR Phase Instructions
+  
+  **Your Goal**: Production-ready code with optimizations.
+  
+  **You Have NO Context**:
+  - Don't know why prior agents made choices
+  - Don't see technical debt list from GREEN
+  - Only see test file (spec) and current implementation
+  
+  **Analyze For**:
+  1. Performance issues (vDSP opportunities, hot loops)
+  2. Swift 6 violations (Sendable, actors, isolation)
+  3. Security issues (DPS-8: URL injection, secrets)
+  4. Missing documentation
+  5. Code duplication
+  
+  **Required Output**:
+  - All tests pass
+  - Zero Swift 6 errors
+  - Performance targets met
+  - Property-based tests added if missing
+  - PERFORMANCE and SAFETY comments
+
+applies_when:
+  phase: REFACTOR
+  task_type: any

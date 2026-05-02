@@ -1,0 +1,67 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-plan",
+  "to_skill": "wfc-architect",
+  "step": "plan",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {
+    "level": "none",
+    "reason": "",
+    "owner": "skill"
+  },
+  "artifacts": {
+    "machine": ".wfc/pipeline/plan-output.json",
+    "human": "TASKS.md"
+  },
+  "payload": {
+    "plan_dir": ".wfc/epics/swift6-compliance",
+    "tasks_md_path": ".wfc/epics/swift6-compliance/TASKS.md",
+    "properties_md_path": ".wfc/epics/swift6-compliance/PROPERTIES.md",
+    "test_plan_md_path": ".wfc/epics/swift6-compliance/TEST-PLAN.md",
+    "plan_audit_path": ".wfc/epics/swift6-compliance/plan-audit.json",
+    "task_count": 20,
+    "property_count": 21,
+    "test_count": 17,
+    "validation_status": "passed",
+    "recommended_next_skill": "wfc-architect",
+    "phases": [
+      {
+        "phase_id": "phase1-mocks",
+        "name": "Mock Services",
+        "requirements": ["REQ-002", "REQ-005"],
+        "task_count": 4,
+        "error_target": 500,
+        "tasks": ["TASK-SW6-001", "TASK-SW6-002", "TASK-SW6-003", "TASK-SW6-004"]
+      },
+      {
+        "phase_id": "phase2-protocols",
+        "name": "Protocol Redesign",
+        "requirements": ["REQ-001", "REQ-003"],
+        "task_count": 5,
+        "error_target": 550,
+        "tasks": ["TASK-SW6-005", "TASK-SW6-006", "TASK-SW6-007", "TASK-SW6-008", "TASK-SW6-009"]
+      },
+      {
+        "phase_id": "phase3-actors",
+        "name": "Actor Implementations",
+        "requirements": ["REQ-004", "REQ-007"],
+        "task_count": 4,
+        "error_target": 250,
+        "tasks": ["TASK-SW6-010", "TASK-SW6-011", "TASK-SW6-012", "TASK-SW6-013"]
+      },
+      {
+        "phase_id": "phase4-tests",
+        "name": "Test Suite & CI/CD",
+        "requirements": ["REQ-006", "REQ-009", "REQ-011", "REQ-012", "REQ-013", "REQ-014", "REQ-015"],
+        "task_count": 7,
+        "error_target": 106,
+        "tasks": ["TASK-SW6-014", "TASK-SW6-015", "TASK-SW6-016", "TASK-SW6-017", "TASK-SW6-018", "TASK-SW6-019", "TASK-SW6-020"]
+      }
+    ],
+    "total_error_target": 1406,
+    "estimated_hours": 91,
+    "parallelizable": true,
+    "source_ba_output": ".wfc/epics/swift6-compliance/ba-output.json"
+  }
+}

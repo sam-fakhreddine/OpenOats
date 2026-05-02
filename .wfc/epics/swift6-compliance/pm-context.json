@@ -1,0 +1,56 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-pm",
+  "to_skill": "wfc-ba",
+  "step": "triage",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {"level": "none", "reason": "", "owner": "skill"},
+  "artifacts": {
+    "machine": ".wfc/epics/swift6-compliance/pm-context.json",
+    "hierarchy": {
+      "epic_root": ".wfc/epics/swift6-compliance",
+      "phases": [
+        "phase1-mocks",
+        "phase2-protocols", 
+        "phase3-actors",
+        "phase4-tests"
+      ],
+      "artifacts_dir": ".wfc/epics/swift6-compliance/artifacts",
+      "findings_dir": ".wfc/epics/swift6-compliance/findings"
+    }
+  },
+  "payload": {
+    "request": "Complete Swift 6 strict concurrency compliance for OpenOats codebase (~1400 errors). Fix actor-protocol conformance, Sendable violations, async-safe locking, and visibility issues. Enable full test suite compilation and CI/CD pipeline.",
+    "goals": [
+      "Achieve zero Swift 6 strict concurrency errors",
+      "Enable full test suite compilation (OpenOatsTests target)",
+      "Maintain runtime behavior compatibility",
+      "Document all @unchecked Sendable with safety rationale",
+      "Enable CI/CD pipeline for automated testing"
+    ],
+    "constraints": [
+      "Must use -strict-concurrency=complete (no downgrading)",
+      "Must preserve existing runtime behavior",
+      "Must not break public API signatures",
+      "Must add SAFETY comments for all @unchecked Sendable",
+      "Must complete in phased approach (4 phases)"
+    ],
+    "auto_proceed": false,
+    "max_iterations": 3,
+    "session_id": "swift6-compliance-20260502",
+    "requested_outcome": "Fully Swift 6 compliant codebase with passing tests",
+    "current_state": {
+      "error_count": 1406,
+      "affected_files": 50,
+      "categories": {
+        "actor_protocol_conformance": 400,
+        "sendable_violations": 300,
+        "visibility_mismatches": 150,
+        "async_locking": 250,
+        "type_inference": 200,
+        "other": 106
+      }
+    }
+  }
+}

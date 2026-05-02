@@ -1,0 +1,43 @@
+{
+  "step": "triage",
+  "iteration": 1,
+  "epic": "swift6-compliance",
+  "epic_root": ".wfc/epics/swift6-compliance",
+  "current_phase": null,
+  "phases": [
+    {
+      "id": "phase1-mocks",
+      "name": "Mock Services Compliance",
+      "description": "Fix all MockLLMService, MockEmbeddingService, MockSettingsRepository, MockServiceFactory, MockServiceRegistry, MockStreamingTranscriptionService Sendable and actor conformance",
+      "estimated_errors": 150,
+      "status": "pending",
+      "artifacts_dir": ".wfc/epics/swift6-compliance/phases/phase1-mocks"
+    },
+    {
+      "id": "phase2-protocols", 
+      "name": "Protocol Redesign",
+      "description": "Redesign LLMService, StreamingTranscriptionService, SettingsRepository, ServiceFactory, ServiceRegistry protocols for actor isolation with isolated parameters",
+      "estimated_errors": 400,
+      "status": "pending",
+      "artifacts_dir": ".wfc/epics/swift6-compliance/phases/phase2-protocols"
+    },
+    {
+      "id": "phase3-actors",
+      "name": "Actor Implementation Fixes", 
+      "description": "Fix MLXTranscriptionService, WhisperKitTranscriptionService, AssemblyAITranscriptionService, AudioCaptureTask actor conformance",
+      "estimated_errors": 300,
+      "status": "pending",
+      "artifacts_dir": ".wfc/epics/swift6-compliance/phases/phase3-actors"
+    },
+    {
+      "id": "phase4-tests",
+      "name": "Test Infrastructure & Validation",
+      "description": "Fix remaining test compilation issues, verify full test suite runs, validate no regressions",
+      "estimated_errors": 200,
+      "status": "pending",
+      "artifacts_dir": ".wfc/epics/swift6-compliance/phases/phase4-tests"
+    }
+  ],
+  "total_errors_remaining": 1406,
+  "last_updated": "2026-05-02T08:55:00Z"
+}

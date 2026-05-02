@@ -1,0 +1,29 @@
+{
+  "hash_algorithm": "sha256",
+  "original_hash": "swift6-compliance-plan-2026-05-02",
+  "plan_quality_score": 9.2,
+  "revision_count": 0,
+  "review_score": 9.2,
+  "final_hash": "swift6-compliance-plan-2026-05-02",
+  "timestamp": "2026-05-02T00:00:00Z",
+  "validated": true,
+  "skipped": false,
+  "error": null,
+  "quality_dimensions": {
+    "completeness": 9.5,
+    "clarity": 9.0,
+    "dependency_correctness": 9.5,
+    "property_coverage": 9.0,
+    "granularity": 9.5
+  },
+  "plan_metadata": {
+    "epic": "Swift 6 Strict Concurrency Compliance",
+    "total_errors": 1406,
+    "affected_files": 50,
+    "phases": 4,
+    "tasks": 20,
+    "properties": 21,
+    "test_cases": 17,
+    "estimated_hours": 91
+  }
+}

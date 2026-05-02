@@ -1,0 +1,73 @@
+# Context Fragment: RED Phase
+# Version: 1.0.0
+# Purpose: What to read and validate for RED phase
+
+id: red-context
+version: "1.0.0"
+description: Context requirements for RED phase (write failing tests)
+
+required_reads:
+  - path: AGENTS.md
+    reason: Project coding standards and TDD workflow
+    priority: critical
+    
+  - path: "{{paths.test_file}}"
+    reason: Where to write tests
+    priority: critical
+    if_missing: create
+    
+  - path: "{{paths.implementation_file}}"
+    reason: What code to test (may not exist yet)
+    priority: optional
+    if_missing: skip
+    
+  - path: ".wfc/epics/{{epic_name}}/TASKS.md"
+    reason: Task specification
+    priority: high
+
+validation_rules:
+  - rule: test_file_compiles
+    command: |
+      cd {{worktree_path}}
+      swift build --target OpenOatsTests 2>&1 | grep -c "error:" || echo "0"
+    expected: "0"
+    on_failure: |
+      The test file has compilation errors. Fix before writing new tests.
+      
+  - rule: test_fails
+    command: |
+      cd {{worktree_path}}
+      swift test --filter {{task.id}} 2>&1 | grep -E "(failed|FAIL)" | wc -l
+    expected: ">0"
+    on_failure: |
+      Tests should FAIL in RED phase. If passing, tests are incomplete.
+
+phase_instructions: |
+  ## RED Phase Instructions
+  
+  **Your Goal**: Write comprehensive tests that FAIL.
+  
+  **Context**:
+  - Read AGENTS.md for coding standards
+  - Read existing tests in {{paths.test_file}}
+  - Understand what {{task.description}} requires
+  
+  **Test Requirements**:
+  1. At least 1 basic functionality test
+  2. At least {{constraints.min_property_tests}} property-based tests
+  3. Edge case coverage
+  4. All tests must compile
+  5. All tests must FAIL when run
+  
+  **Property Tests**:
+  ```swift
+  @Test(arguments: randomInputGenerator())
+  func invariantProperty(input: InputType) {
+      // Test invariant that must always hold
+      #expect(transform(untransform(input)) == input)
+  }
+  ```
+
+applies_when:
+  phase: RED
+  task_type: any

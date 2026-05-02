@@ -1,0 +1,45 @@
+# Skill Fragment: Swift Testing
+# Version: 1.0.0
+# Purpose: Defines skills needed for writing tests
+
+id: swift-testing
+version: "1.0.0"
+description: Skills for writing Swift tests with Swift Testing framework
+
+skills:
+  - name: swift-testing-pro
+    load: |
+      Load Swift Testing skill:
+      ```bash
+      skill(name="swift-testing-pro")
+      ```
+    purpose: Write tests using modern Swift Testing framework
+    
+  - name: swift-concurrency-pro
+    load: |
+      Load Swift Concurrency skill:
+      ```bash
+      skill(name="swift-concurrency-pro")
+      ```
+    purpose: Ensure tests handle async/await and actors correctly
+
+load_instructions: |
+  ## Required Skills
+  
+  Before writing any tests, load these skills:
+  
+  ```bash
+  skill(name="swift-testing-pro")
+  skill(name="swift-concurrency-pro")
+  ```
+  
+  These provide:
+  - Swift Testing best practices (#expect vs #require)
+  - Property-based testing patterns
+  - Async test handling
+  - Actor isolation in tests
+
+applies_when:
+  - phase: RED
+  - task_type: test
+  - file_path: "Tests/**/*.swift"

@@ -1,0 +1,429 @@
+{
+  "schema_version": "3.0",
+  "from_skill": "wfc-ba",
+  "to_skill": "wfc-pm",
+  "step": "requirements-synthesis",
+  "status": "ok",
+  "handoff_ready": true,
+  "escalation": {
+    "level": "none",
+    "reason": "",
+    "owner": "skill"
+  },
+  "artifacts": {
+    "machine": ".wfc/epics/swift6-compliance/ba-output.json",
+    "hierarchy": {
+      "epic_root": ".wfc/epics/swift6-compliance",
+      "phases": [
+        "phase1-mocks",
+        "phase2-protocols",
+        "phase3-actors",
+        "phase4-tests"
+      ],
+      "artifacts_dir": ".wfc/epics/swift6-compliance/artifacts",
+      "findings_dir": ".wfc/epics/swift6-compliance/findings"
+    }
+  },
+  "payload": {
+    "request": "Complete Swift 6 strict concurrency compliance for OpenOats codebase (~1400 errors). Fix actor-protocol conformance, Sendable violations, async-safe locking, and visibility issues. Enable full test suite compilation and CI/CD pipeline.",
+    "goals": [
+      "Achieve zero Swift 6 strict concurrency errors",
+      "Enable full test suite compilation (OpenOatsTests target)",
+      "Maintain runtime behavior compatibility",
+      "Document all @unchecked Sendable with safety rationale",
+      "Enable CI/CD pipeline for automated testing"
+    ],
+    "constraints": [
+      "Must use -strict-concurrency=complete (no downgrading)",
+      "Must preserve existing runtime behavior",
+      "Must not break public API signatures",
+      "Must add SAFETY comments for all @unchecked Sendable",
+      "Must complete in phased approach (4 phases)"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "text": "Fix all Actor-Protocol Conformance issues (400 errors) - Resolve protocol conformance errors where actors need to properly handle isolated and nonisolated members",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Zero actor-protocol conformance errors reported by Swift compiler with -strict-concurrency=complete",
+          "All protocol methods on actors are marked with @MainActor, nonisolated, or actor-isolated as appropriate",
+          "Protocol conformance for streaming transcription services passes strict concurrency checks",
+          "Code compiles with Swift 6 without any Sendable conformance warnings for actor-bound protocols"
+        ],
+        "source": "current_state",
+        "phase": "phase2-protocols",
+        "affected_error_count": 400
+      },
+      {
+        "id": "REQ-002",
+        "text": "Fix all Sendable Violations (300 errors) - Ensure all types crossing actor boundaries conform to Sendable",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Zero Sendable violations reported by Swift compiler",
+          "All types passed across actors are Sendable or use @unchecked Sendable with documented safety rationale",
+          "Transcription models and audio buffers properly conform to Sendable",
+          "All completion handlers and async closures use Sendable types",
+          "Every @unchecked Sendable has a SAFETY comment explaining thread-safety rationale"
+        ],
+        "source": "current_state",
+        "phase": "phase1-mocks",
+        "affected_error_count": 300
+      },
+      {
+        "id": "REQ-003",
+        "text": "Fix Visibility Mismatches (150 errors) - Resolve access control and visibility conflicts in actor contexts",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Zero visibility mismatch errors reported by Swift compiler",
+          "Public/internal access modifiers are consistent across actor boundaries",
+          "Cross-module type visibility maintains ABI compatibility",
+          "All exported API signatures remain unchanged (backward compatible)"
+        ],
+        "source": "current_state",
+        "phase": "phase2-protocols",
+        "affected_error_count": 150
+      },
+      {
+        "id": "REQ-004",
+        "text": "Fix Async-Safe Locking Issues (250 errors) - Replace unsafe locking primitives with actor-safe alternatives",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Zero async-locking errors reported by Swift compiler",
+          "All NSLock/NSRecursiveLock usage is eliminated or properly isolated",
+          "Circular buffer operations are actor-safe or use proper synchronization",
+          "Audio engine state access is properly serialized through actors",
+          "No potential for data races in concurrent audio processing paths"
+        ],
+        "source": "current_state",
+        "phase": "phase3-actors",
+        "affected_error_count": 250
+      },
+      {
+        "id": "REQ-005",
+        "text": "Fix Type Inference Failures (200 errors) - Resolve concurrency-related type inference issues",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Zero type inference errors in concurrent contexts reported by Swift compiler",
+          "All inferred types in async contexts are explicitly typed where required",
+          "Generic type parameters in async methods are properly constrained",
+          "Closures in async contexts have explicit type annotations",
+          "Result types in async functions are fully qualified"
+        ],
+        "source": "current_state",
+        "phase": "phase1-mocks",
+        "affected_error_count": 200
+      },
+      {
+        "id": "REQ-006",
+        "text": "Enable Full Test Suite Compilation (OpenOatsTests target) - Ensure all tests compile with strict concurrency",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "OpenOatsTests target compiles with -strict-concurrency=complete with zero errors",
+          "All test doubles and mocks are Sendable-compliant",
+          "Test expectations and async assertions are concurrency-safe",
+          "Test framework dependencies are Swift 6 compatible",
+          "swift test command executes without compilation errors"
+        ],
+        "source": "goals",
+        "phase": "phase4-tests",
+        "affected_error_count": 106
+      },
+      {
+        "id": "REQ-007",
+        "text": "Document @unchecked Sendable Safety Rationales - Add SAFETY comments for all unchecked Sendable conformances",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Every @unchecked Sendable has a SAFETY: comment directly above the conformance",
+          "SAFETY comments explain why the type is thread-safe (immutable, properly locked, etc.)",
+          "Documentation is consistent with Apple Swift concurrency guidelines",
+          "All safety rationales are reviewed and approved in code review"
+        ],
+        "source": "constraints",
+        "phase": "phase3-actors",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-008",
+        "text": "Maintain Public API Compatibility - No breaking changes to public API signatures",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "All public API signatures remain unchanged after Swift 6 compliance",
+          "No function signatures modified in a breaking way",
+          "No public type definitions changed incompatibly",
+          "Existing integration tests pass without modification",
+          "Semantic versioning remains compatible (minor bump only)"
+        ],
+        "source": "constraints",
+        "phase": "all-phases",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-009",
+        "text": "Implement Phased Migration Strategy - Execute migration in 4 phases with intermediate validation",
+        "moscow": "MUST",
+        "acceptance_criteria": [
+          "Phase 1 (Mocks) complete: Test doubles and mock implementations are Swift 6 compliant",
+          "Phase 2 (Protocols) complete: Protocol definitions and actor conformance resolved",
+          "Phase 3 (Actors) complete: Core actor implementations are strict concurrency compliant",
+          "Phase 4 (Tests) complete: Full test suite compiles and passes with strict concurrency",
+          "Each phase has passing intermediate build status"
+        ],
+        "source": "constraints",
+        "phase": "all-phases",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-010",
+        "text": "Preserve Runtime Behavior - All functional behavior remains identical pre/post migration",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "All existing unit tests pass without modification",
+          "Performance benchmarks show no regression >5%",
+          "Audio processing latency remains within 20ms target",
+          "Memory usage patterns remain equivalent",
+          "Integration tests pass with identical results"
+        ],
+        "source": "constraints",
+        "phase": "all-phases",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-011",
+        "text": "Enable CI/CD Pipeline Integration - Configure automated strict concurrency checking in CI",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "CI pipeline runs swift build with -strict-concurrency=complete",
+          "Build fails on any Swift 6 concurrency errors",
+          "GitHub Actions workflow configured for Swift 6 checks",
+          "Pull request checks include strict concurrency validation",
+          "CI completes in under 10 minutes"
+        ],
+        "source": "goals",
+        "phase": "phase4-tests",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-012",
+        "text": "Create Comprehensive Documentation - Document migration patterns and lessons learned",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "Migration guide created for team reference",
+          "Common Swift 6 error patterns documented with solutions",
+          "Code examples show before/after for each error category",
+          "Architecture Decision Record (ADR) created for Swift 6 adoption",
+          "Documentation reviewed by at least 2 engineers"
+        ],
+        "source": "goals",
+        "phase": "phase4-tests",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-013",
+        "text": "Perform Performance Validation - Measure and validate performance impact of concurrency changes",
+        "moscow": "SHOULD",
+        "acceptance_criteria": [
+          "Baseline performance metrics captured before migration",
+          "Post-migration performance metrics collected and compared",
+          "Audio buffer processing latency measured (<20ms target)",
+          "CPU usage during transcription compared pre/post",
+          "Performance regression >10% triggers investigation"
+        ],
+        "source": "goals",
+        "phase": "phase4-tests",
+        "affected_error_count": 0
+      },
+      {
+        "id": "REQ-014",
+        "text": "Address Remaining 'Other' Category Errors (106 errors) - Resolve miscellaneous Swift 6 issues",
+        "moscow": "COULD",
+        "acceptance_criteria": [
+          "All remaining 'other' category errors categorized and resolved",
+          "Zero Swift 6 errors of any category remaining",
+          "Compiler warnings triaged (info vs fix required)"
+        ],
+        "source": "current_state",
+        "phase": "phase4-tests",
+        "affected_error_count": 106
+      },
+      {
+        "id": "REQ-015",
+        "text": "Implement Property-Based Testing for Concurrency - Add property-based tests for concurrent operations",
+        "moscow": "COULD",
+        "acceptance_criteria": [
+          "Property-based tests added for circular buffer operations",
+          "Round-trip tests for audio processing functions",
+          "Invariant tests for actor state consistency",
+          "Tests run as part of CI pipeline"
+        ],
+        "source": "goals",
+        "phase": "phase4-tests",
+        "affected_error_count": 0
+      }
+    ],
+    "moscow": {
+      "must": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-003",
+        "REQ-004",
+        "REQ-005",
+        "REQ-006",
+        "REQ-007",
+        "REQ-008",
+        "REQ-009"
+      ],
+      "should": [
+        "REQ-010",
+        "REQ-011",
+        "REQ-012",
+        "REQ-013"
+      ],
+      "could": [
+        "REQ-014",
+        "REQ-015"
+      ],
+      "wont": []
+    },
+    "risks": [
+      {
+        "id": "RISK-001",
+        "description": "Runtime behavior regression - Actor isolation changes may alter execution timing, potentially affecting audio processing latency and synchronization",
+        "likelihood": "M",
+        "impact": "H",
+        "mitigation": "Comprehensive testing with audio latency benchmarks, A/B comparison of pre/post behavior, gradual rollout with feature flags if needed",
+        "category": "technical"
+      },
+      {
+        "id": "RISK-002",
+        "description": "API compatibility break - Fixing Sendable violations may require changing public API signatures, breaking existing integrations",
+        "likelihood": "M",
+        "impact": "H",
+        "mitigation": "Use @unchecked Sendable where necessary with documented safety rationale, prefer non-breaking changes, maintain deprecated overloads during transition",
+        "category": "technical"
+      },
+      {
+        "id": "RISK-003",
+        "description": "Performance degradation - Actor isolation may introduce suspension points and context switches, impacting real-time audio performance",
+        "likelihood": "M",
+        "impact": "M",
+        "mitigation": "Profile hot paths early, use nonisolated for pure computations, optimize actor hopping patterns, maintain <20ms audio buffer processing target",
+        "category": "performance"
+      },
+      {
+        "id": "RISK-004",
+        "description": "Scope expansion - 1406 errors across 50 files suggests potential for hidden complexity and cascading dependencies",
+        "likelihood": "H",
+        "impact": "M",
+        "mitigation": "Strict phased approach with intermediate checkpoints, early validation of error estimates, weekly progress reviews, escalate if >20% scope increase",
+        "category": "schedule"
+      },
+      {
+        "id": "RISK-005",
+        "description": "Third-party dependency issues - External libraries may not be Swift 6 compliant, blocking compilation",
+        "likelihood": "M",
+        "impact": "M",
+        "mitigation": "Audit dependencies early, fork and patch if needed, seek alternative libraries, document workarounds in migration guide",
+        "category": "dependency"
+      },
+      {
+        "id": "RISK-006",
+        "description": "Developer productivity impact - Strict concurrency compiler errors may slow development velocity during migration",
+        "likelihood": "H",
+        "impact": "L",
+        "mitigation": "Provide clear error resolution patterns, maintain Swift 6 best practices guide, pair programming for complex cases",
+        "category": "process"
+      }
+    ],
+    "stakeholders": [
+      {
+        "name": "Engineering Team",
+        "influence": "influencer",
+        "concern": "Maintaining development velocity while implementing strict concurrency"
+      },
+      {
+        "name": "Tech Lead / Architecture",
+        "influence": "influencer",
+        "concern": "Ensuring architectural patterns are correctly applied across all actors"
+      },
+      {
+        "name": "QA Team",
+        "influence": "informed",
+        "concern": "Validating that concurrency changes don't introduce regression bugs"
+      },
+      {
+        "name": "Product Management",
+        "influence": "informed",
+        "concern": "Timeline impact on feature delivery schedule"
+      },
+      {
+        "name": "macOS Users",
+        "influence": "informed",
+        "concern": "Application stability and audio quality post-migration"
+      }
+    ],
+    "competitive_signals": [
+      "Apple is pushing Swift 6 strict concurrency as the default in Xcode 16+",
+      "Other macOS audio apps are adopting Swift 6 for improved safety and performance",
+      "Swift 6 adoption is becoming table stakes for professional macOS applications",
+      "Early adopters report improved runtime stability and fewer crashes"
+    ],
+    "research_signals": [
+      "Swift 6 strict concurrency eliminates entire classes of data race bugs at compile time",
+      "Actor isolation provides clear ownership boundaries for mutable state",
+      "The migration pattern for audio apps is well-established in the Swift community",
+      "Property-based testing is particularly effective for validating concurrent code correctness",
+      "Most errors (~1300/1406) are in 5 categories with known fix patterns"
+    ],
+    "complexity_signal": "high",
+    "next_recommended": "wfc-plan",
+    "satisfied": true,
+    "gaps": [],
+    "current_state": {
+      "error_count": 1406,
+      "affected_files": 50,
+      "categories": {
+        "actor_protocol_conformance": 400,
+        "sendable_violations": 300,
+        "visibility_mismatches": 150,
+        "async_locking": 250,
+        "type_inference": 200,
+        "other": 106
+      }
+    },
+    "phased_approach": {
+      "phase1_mocks": {
+        "name": "Mock and Test Infrastructure",
+        "requirements": ["REQ-002", "REQ-005"],
+        "error_target": 500,
+        "deliverable": "Sendable-compliant test doubles and type inference fixes"
+      },
+      "phase2_protocols": {
+        "name": "Protocol Definitions and Actor Conformance",
+        "requirements": ["REQ-001", "REQ-003"],
+        "error_target": 550,
+        "deliverable": "Swift 6 compliant protocol hierarchies"
+      },
+      "phase3_actors": {
+        "name": "Core Actor Implementations",
+        "requirements": ["REQ-004", "REQ-007"],
+        "error_target": 250,
+        "deliverable": "Strict concurrency compliant actors with documented safety"
+      },
+      "phase4_tests": {
+        "name": "Test Suite and CI/CD Enablement",
+        "requirements": ["REQ-006", "REQ-009", "REQ-011", "REQ-012", "REQ-013", "REQ-014", "REQ-015"],
+        "error_target": 106,
+        "deliverable": "Full test suite compilation and CI/CD integration"
+      }
+    },
+    "success_metrics": {
+      "zero_swift6_errors": true,
+      "test_suite_compiles": true,
+      "tests_pass": true,
+      "no_api_breaks": true,
+      "performance_regression_under_5pct": true,
+      "all_safety_documented": true
+    }
+  }
+}

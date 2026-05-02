@@ -1,0 +1,90 @@
+# Action Fragment: Write Tests
+# Version: 1.0.0
+# Purpose: Steps to write comprehensive failing tests
+
+id: write-tests
+version: "1.0.0"
+description: Action steps for RED phase - writing tests
+
+preconditions:
+  - AGENTS.md has been read
+  - {{paths.test_file}} exists or will be created
+  
+steps:
+  - name: create_test_file
+    condition: "{{paths.test_file}} does not exist"
+    action: |
+      Create test file at {{paths.test_file}}:
+      ```swift
+      import Testing
+      @testable import OpenOats
+      
+      struct {{task.id}}Tests {
+          // TASK-{{task.id}}: {{task.description}}
+      }
+      ```
+    
+  - name: write_basic_test
+    action: |
+      Add basic functionality test:
+      ```swift
+      @Test
+      func basicFunctionality() {
+          // Given: Setup test data
+          let input = ...
+          
+          // When: Execute operation
+          let result = ...
+          
+          // Then: Verify result
+          #expect(result == expected)
+      }
+      ```
+      
+  - name: write_property_tests
+    min_count: "{{constraints.min_property_tests}}"
+    action: |
+      Add property-based tests:
+      ```swift
+      @Test(arguments: generateRandom{{task.id}}Inputs())
+      func {{property_name}}({{param}}: {{type}}) {
+          // Invariant: {{invariant_description}}
+          #expect({{invariant_check}})
+      }
+      ```
+      
+  - name: write_edge_cases
+    action: |
+      Add edge case tests:
+      ```swift
+      @Test
+      func edgeCaseEmptyInput() {
+          #expect(doesNotCrash([]))
+      }
+      
+      @Test
+      func edgeCaseMaximumSize() {
+          #expect(handlesLargeInput(Array(repeating: 0, count: 10000)))
+      }
+      ```
+      
+  - name: verify_compilation
+    command: |
+      cd {{worktree_path}}
+      swift build --target OpenOatsTests
+    
+  - name: verify_failure
+    command: |
+      cd {{worktree_path}}
+      swift test --filter {{task.id}} 2>&1 | grep -E "(failed|FAIL)"
+    expected: ">0 failures"
+
+output_requirements:
+  - test_count: ">=1"
+  - property_tests: ">={{constraints.min_property_tests}}"
+  - edge_cases: ">=2"
+  - compiles: true
+  - fails_when_run: true
+
+applies_when:
+  phase: RED

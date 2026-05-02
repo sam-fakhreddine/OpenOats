@@ -1,0 +1,71 @@
+# Context Fragment: GREEN Phase
+# Version: 1.0.0
+# Purpose: What to read and validate for GREEN phase
+
+id: green-context
+version: "1.0.0"
+description: Context requirements for GREEN phase (minimal implementation)
+
+required_reads:
+  - path: AGENTS.md
+    reason: Project coding standards
+    priority: critical
+    
+  - path: "{{paths.test_file}}"
+    reason: Tests to make pass
+    priority: critical
+    
+  - path: "{{paths.implementation_file}}"
+    reason: Where to write implementation
+    priority: critical
+    if_missing: create
+
+validation_rules:
+  - rule: tests_exist
+    check: |
+      File {{paths.test_file}} must exist and contain @Test annotations
+    command: |
+      grep -c "@Test" {{paths.test_file}} || echo "0"
+    expected: ">0"
+    on_failure: |
+      No tests found. RED phase must complete first.
+      
+  - rule: tests_compile
+    command: |
+      cd {{worktree_path}}
+      swift build --target OpenOatsTests 2>&1 | grep -c "error:" || echo "0"
+    expected: "0"
+    on_failure: |
+      Tests don't compile. Fix compilation errors first.
+      
+  - rule: tests_pass
+    command: |
+      cd {{worktree_path}}
+      swift test --filter {{task.id}}
+    expected: "exit 0"
+    on_failure: |
+      Tests should pass after your implementation.
+
+phase_instructions: |
+  ## GREEN Phase Instructions
+  
+  **Your Goal**: Make ALL tests pass with MINIMAL code.
+  
+  **Minimal Means**:
+  - Hardcoded values are OK
+  - Ugly code is OK
+  - Duplicate code is OK
+  - Inefficient algorithms are OK
+  - No error handling is OK
+  
+  **What NOT To Do**:
+  - Do NOT refactor
+  - Do NOT optimize
+  - Do NOT add features not tested
+  - Do NOT write "nice" code
+  
+  **Just make the tests pass. Nothing more.**
+
+applies_when:
+  phase: GREEN
+  task_type: implementation

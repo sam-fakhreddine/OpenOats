@@ -1,0 +1,46 @@
+# Skill Fragment: Swift Concurrency
+# Version: 1.0.0
+# Purpose: Skills for Swift 6 strict concurrency
+
+id: swift-concurrency
+version: "1.0.0"
+description: Skills for Swift 6.2 strict concurrency compliance
+
+skills:
+  - name: swift-concurrency-pro
+    load: |
+      Load Swift Concurrency skill:
+      ```bash
+      skill(name="swift-concurrency-pro")
+      ```
+    purpose: Review and fix concurrency issues
+    
+  - name: concurrency-patterns
+    load: |
+      Load Concurrency Patterns skill:
+      ```bash
+      skill(name="concurrency-patterns")
+      ```
+    purpose: Apply Swift 6.2 concurrency patterns
+
+load_instructions: |
+  ## Required Skills for Concurrency Work
+  
+  Load these skills before any Swift 6 work:
+  
+  ```bash
+  skill(name="swift-concurrency-pro")
+  skill(name="concurrency-patterns")
+  ```
+  
+  Key capabilities:
+  - Actor reentrancy detection
+  - Sendable conformance
+  - Structured concurrency patterns
+  - Global actor isolation
+  - @unchecked Sendable safety analysis
+
+applies_when:
+  - phase: GREEN, REFACTOR
+  - concern: concurrency
+  - build_flag: "-strict-concurrency=complete"
