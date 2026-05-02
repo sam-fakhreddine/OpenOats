@@ -69,11 +69,10 @@ public actor GenerateNotesUseCaseImpl: GenerateNotesUseCase {
     private let llmService: any LLMService
     private let noteRepository: (any NoteRepository)?
     
-    private var isCancelled = false
     private var currentTask: Task<Void, Never>?
-    
-    public var isExecuting: Bool {
-        get async { currentTask != nil }
+
+    public func isExecuting() async -> Bool {
+        currentTask != nil
     }
     
     public init(
@@ -87,13 +86,11 @@ public actor GenerateNotesUseCaseImpl: GenerateNotesUseCase {
     }
     
     public func cancel() async {
-        isCancelled = true
         currentTask?.cancel()
     }
-    
+
     public func execute(input: GenerateNotesInput) async throws -> GenerateNotesOutput {
         let startTime = Date()
-        isCancelled = false
         
         // Create task for tracking
         let task = Task { () -> GenerateNotesOutput in
@@ -185,7 +182,7 @@ public actor GenerateNotesUseCaseImpl: GenerateNotesUseCase {
     }
     
     private func checkCancelled() async throws {
-        if isCancelled {
+        if Task.isCancelled {
             throw CancellationError()
         }
     }

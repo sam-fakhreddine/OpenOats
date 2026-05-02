@@ -905,6 +905,10 @@ actor StreamingTranscriptionActor {
         ) else { return nil }
 
         var error: NSError?
+        // SAFETY: This is safe because:
+        // 1. The closure is synchronous (no suspension points between set and read)
+        // 2. The converter guarantees single-threaded access during convert()
+        // 3. The flag is reset for each new conversion operation
         nonisolated(unsafe) var consumed = false
         converter.convert(to: outputBuffer, error: &error) { _, outStatus in
             if consumed {
